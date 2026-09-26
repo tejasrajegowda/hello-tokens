@@ -1,0 +1,3 @@
+#!/bin/sh
+# Runs before a push: every outgoing commit and the pushed tree are checked.
+exec python scripts/guard.py outgoing

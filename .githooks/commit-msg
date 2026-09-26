@@ -1,0 +1,2 @@
+#!/bin/sh
+exec python scripts/guard.py message "$1"

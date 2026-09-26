@@ -1,0 +1,12 @@
+[project]
+name = "hello-tokens"
+version = "0.1.0"
+description = "A language model built from scratch in PyTorch, then made fast."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Runs on every commit, including ones made by hand.
+exec python scripts/guard.py staged
