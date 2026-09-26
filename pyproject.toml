@@ -4,8 +4,23 @@ version = "0.1.0"
 description = "A language model built from scratch in PyTorch, then made fast."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.12"
-dependencies = []
+requires-python = ">=3.14"
+dependencies = [
+    "numpy>=2.5.3",
+    "torch>=2.14",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+# PyTorch's CUDA builds are published on PyTorch's own index, not on PyPI.
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu130" }]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

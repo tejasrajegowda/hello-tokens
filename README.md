@@ -12,6 +12,18 @@ engineering: making generation fast, and measuring what each optimization costs 
 Early development. The repository layout and tooling are in place, and the model is being built
 one component at a time. Progress is recorded in [docs/build-log.md](docs/build-log.md).
 
+## Getting started
+
+Requires an NVIDIA GPU and [uv](https://docs.astral.sh/uv/). Python 3.14 and PyTorch's CUDA build
+are installed by uv.
+
+```
+uv sync
+uv run python -m hello_tokens check
+```
+
+`check` reports the Python and PyTorch versions and confirms that the GPU can run PyTorch code.
+
 ## Roadmap
 
 ### v1: a working model
