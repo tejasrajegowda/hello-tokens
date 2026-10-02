@@ -22,3 +22,16 @@ What was built, in order, and why.
   and copies the result back, which forces the GPU to finish the work. A broken CUDA setup fails
   here, before any training starts. It also reports bf16 support, used later for mixed-precision
   training.
+
+## 3. Downloading the corpus
+
+- **Data.** The GPT-4-only files of TinyStories: `TinyStoriesV2-GPT4-train.txt` (2.23 GB) for
+  training and `TinyStoriesV2-GPT4-valid.txt` (22.5 MB), held out for evaluation.
+- **`python -m hello_tokens prepare`.** Streams each file in 1 MiB pieces, so the 2 GB file is never
+  held in memory. It writes to a `.part` file and renames it only once the byte count matches the
+  known size, so an interrupted download never looks complete. A file that is already complete
+  is skipped.
+- **Testable without the network.** The function that opens the URL is passed in, so the tests use
+  an in-memory stand-in: a fresh download, a skipped re-download, and a short download that is
+  rejected.
+

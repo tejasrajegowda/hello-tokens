@@ -3,8 +3,11 @@
 import argparse
 import platform
 import sys
+from pathlib import Path
 
 import torch
+
+from hello_tokens.corpus.download import download_all
 
 
 def check() -> int:
@@ -33,10 +36,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="hello_tokens")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("check", help="check that Python, PyTorch and the GPU are ready")
+    prepare = commands.add_parser("prepare", help="download the TinyStories training text")
+    prepare.add_argument("--data-dir", type=Path, default=Path("data"), help="where to store it")
     args = parser.parse_args(argv)
 
     if args.command == "check":
         return check()
+    if args.command == "prepare":
+        download_all(args.data_dir)
+        return 0
     return 2
 
 

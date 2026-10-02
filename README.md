@@ -20,9 +20,11 @@ are installed by uv.
 ```
 uv sync
 uv run python -m hello_tokens check
+uv run python -m hello_tokens prepare
 ```
 
 `check` reports the Python and PyTorch versions and confirms that the GPU can run PyTorch code.
+`prepare` downloads the TinyStories text (about 2.2 GB) into `data/`.
 
 ## Roadmap
 
