@@ -34,6 +34,11 @@ What was built, in order, and why.
 - **Testable without the network.** The function that opens the URL is passed in, so the tests use
   an in-memory stand-in: a fresh download, a skipped re-download, and a short download that is
   rejected.
+- **Resuming.** The first real download dropped at 622 MB of 2.2 GB; the size check caught it and
+  left the `.part` file. The download now resumes: each attempt asks the server for the remaining
+  bytes only (an HTTP `Range` request, answered with `206 Partial Content`) and appends them, with
+  up to 20 attempts. Tests cover resuming from a partial file, retrying after a drop, and giving
+  up without leaving a finished-looking file.
 
 ## 4. Byte-pair encoding: the core algorithm
 
