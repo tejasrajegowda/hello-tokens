@@ -35,3 +35,14 @@ What was built, in order, and why.
   an in-memory stand-in: a fresh download, a skipped re-download, and a short download that is
   rejected.
 
+## 4. Byte-pair encoding: the core algorithm
+
+- **Bytes first.** Text is encoded as UTF-8 bytes, so the 256 byte values are the starting
+  vocabulary and any text, in any script, can be tokenized. Nothing is ever "unknown".
+- **Training** repeats one step: count every pair of neighbouring tokens, take the most frequent,
+  and replace each occurrence with a new token. The recorded merges, `(left, right) → new id`, are
+  the tokenizer. Ties go to the pair seen first, so training is repeatable.
+- **Encoding** applies merges in the order they were learned, which reproduces training's
+  decisions on new text. **Decoding** expands each token back into its bytes.
+- **Tests** check the classic example `aaabdaaabac` against merges worked out by hand, and that
+  text round-trips exactly, including emoji and characters never seen in training.
