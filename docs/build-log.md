@@ -51,3 +51,22 @@ What was built, in order, and why.
   decisions on new text. **Decoding** expands each token back into its bytes.
 - **Tests** check the classic example `aaabdaaabac` against merges worked out by hand, and that
   text round-trips exactly, including emoji and characters never seen in training.
+
+## 5. The tokenizer on real text
+
+- **Pre-split into chunks.** A regular expression cuts text into words (with their leading space),
+  numbers, symbols and whitespace, and merges never cross a chunk boundary. Tokens therefore align
+  with words, and every character falls into exactly one branch, so the chunks always rejoin into
+  the original text.
+- **Count distinct chunks once.** Training works on each distinct chunk with its frequency instead
+  of the full text: a 2 MB sample has 2,417 stories but only 5,989 distinct chunks.
+- **`<|endoftext|>` is a special token.** Stories are split on it before training, so no merge spans
+  two stories, and it encodes to a single fixed id, the last in the vocabulary.
+- **Vocabulary.** Ids 0–255 are bytes, then the learned merges, then the special token: 4,096 ids in
+  all. Training stops early if a text runs out of pairs.
+- **Saved as plain text,** one merge per line in learned order, and reloaded identically. Training
+  is deterministic, so `prepare` reproduces the same file.
+- **Sample size, measured.** Training the full vocabulary on 5, 10 and 20 MB took 114, 113 and
+  156 s, and all three compress held-out text to 3.95 bytes per token: TinyStories' vocabulary is
+  covered by 5 MB. `prepare` uses 20 MB (197 s) for broader coverage of rare words. A typical
+  sentence encodes to one token per word.

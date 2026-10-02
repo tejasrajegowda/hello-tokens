@@ -3,11 +3,14 @@
 import argparse
 import platform
 import sys
+import time
 from pathlib import Path
 
 import torch
 
 from hello_tokens.corpus.download import download_all
+from hello_tokens.corpus.sample import read_sample
+from hello_tokens.tokenizer.tokenizer import Tokenizer
 
 
 def check() -> int:
@@ -36,16 +39,33 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="hello_tokens")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("check", help="check that Python, PyTorch and the GPU are ready")
-    prepare = commands.add_parser("prepare", help="download the TinyStories training text")
+    prepare = commands.add_parser("prepare", help="download TinyStories and train the tokenizer")
     prepare.add_argument("--data-dir", type=Path, default=Path("data"), help="where to store it")
+    prepare.add_argument("--sample-mb", type=float, default=20, help="text used to train the tokenizer")
+    prepare.add_argument("--vocab-size", type=int, default=4096, help="tokenizer vocabulary size")
     args = parser.parse_args(argv)
 
     if args.command == "check":
         return check()
     if args.command == "prepare":
         download_all(args.data_dir)
+        train_tokenizer(args.data_dir, args.sample_mb, args.vocab_size)
         return 0
     return 2
+
+
+def train_tokenizer(data_dir: Path, sample_mb: float, vocab_size: int) -> None:
+    """Train the tokenizer on a sample of the training stories, unless it already exists."""
+    path = data_dir / "tokenizer.bpe"
+    if path.exists():
+        print(f"tokenizer: already present ({path})")
+        return
+    text = read_sample(data_dir / "raw" / "TinyStoriesV2-GPT4-train.txt", sample_mb)
+    print(f"tokenizer: training on {sample_mb:g} MB, vocabulary {vocab_size}", flush=True)
+    started = time.perf_counter()
+    tokenizer = Tokenizer.train(text, vocab_size)
+    tokenizer.save(path)
+    print(f"tokenizer: {tokenizer.vocab_size} tokens in {time.perf_counter() - started:.0f} s -> {path}")
 
 
 if __name__ == "__main__":
