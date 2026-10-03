@@ -23,7 +23,7 @@ Each step is recorded in [docs/build-log.md](docs/build-log.md).
 | Training | 20,000 steps, 327.7M tokens, 78.5 minutes on an RTX 4060 Laptop GPU (8 GB), bf16 |
 | Held-out loss | **1.287** (cross-entropy per token, every one of 5,683,947 held-out tokens scored) |
 | Held-out perplexity | **3.62** |
-| Generation speed | 152 tokens/s (6.6 ms per token), no KV cache: the baseline for v2 |
+| Generation speed | 166 tokens/s (6.0 ms per token), no KV cache: the baseline for v2 ([how it was measured](docs/build-log.md#13-profiling-one-generation-step)) |
 
 Training and held-out loss finished 0.006 apart, so the model generalizes rather than memorizes, and
 the held-out curve was still falling when training stopped.
