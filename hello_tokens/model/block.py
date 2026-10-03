@@ -1,6 +1,7 @@
 """One transformer block: attention, then a feed-forward network, each wrapped in a residual."""
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 from hello_tokens.model.attention import CausalSelfAttention
@@ -21,6 +22,31 @@ class FeedForward(nn.Module):
         return self.down(self.gelu(self.up(x)))
 
 
+def swiglu_hidden(width: int) -> int:
+    """2/3 of the GELU network's 4x, so three matrices hold as many weights as its two; rounded up
+    to a multiple of 64, which GPUs handle efficiently. For width 384: exactly 1,024."""
+    return -(-(8 * width // 3) // 64) * 64
+
+
+class SwiGLU(nn.Module):
+    """The gated feed-forward network of modern models (Shazeer, 2020).
+
+    Two layers widen the token: one gives values (`up`), the other a gate (`gate`). The gate passes
+    through SiLU (x * sigmoid(x)), a smooth switch, and multiplies the values, so the network learns
+    per number how much to let through. Then `down` narrows back.
+    """
+
+    def __init__(self, config: ModelConfig):
+        super().__init__()
+        hidden = swiglu_hidden(config.width)
+        self.gate = nn.Linear(config.width, hidden)
+        self.up = nn.Linear(config.width, hidden)
+        self.down = nn.Linear(hidden, config.width)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.down(F.silu(self.gate(x)) * self.up(x))
+
+
 class Block(nn.Module):
     """Attention lets tokens share information; the feed-forward network thinks about each token.
 
@@ -33,7 +59,7 @@ class Block(nn.Module):
         self.norm1 = make_norm(config)
         self.attention = CausalSelfAttention(config)
         self.norm2 = make_norm(config)
-        self.feed_forward = FeedForward(config)
+        self.feed_forward = SwiGLU(config) if config.feed_forward == "swiglu" else FeedForward(config)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.attention(self.norm1(x))

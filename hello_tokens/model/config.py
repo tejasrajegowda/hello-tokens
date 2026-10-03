@@ -14,6 +14,8 @@ class ModelConfig:
     # above) rebuilds exactly the v1 model.
     norm: str = "layernorm"  # or "rmsnorm"
     position: str = "learned"  # learned position table, or "rope" (rotary)
+    feed_forward: str = "gelu"  # or "swiglu"
+    kv_heads: int | None = None  # key/value heads; None = one per query head (v1). Fewer = GQA
 
     def __post_init__(self):
         if self.width % self.heads:
@@ -22,7 +24,15 @@ class ModelConfig:
             raise ValueError(f"unknown norm {self.norm!r}")
         if self.position not in ("learned", "rope"):
             raise ValueError(f"unknown position {self.position!r}")
+        if self.feed_forward not in ("gelu", "swiglu"):
+            raise ValueError(f"unknown feed_forward {self.feed_forward!r}")
+        if self.heads % self.kv_head_count:
+            raise ValueError("the query heads must divide evenly between the key/value heads")
 
     @property
     def head_width(self) -> int:
         return self.width // self.heads
+
+    @property
+    def kv_head_count(self) -> int:
+        return self.kv_heads or self.heads

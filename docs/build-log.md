@@ -249,3 +249,23 @@ What was built, in order, and why.
   sequence, which the KV cache will need.
 - **Parameters.** Together the two changes remove the 98,304-parameter position table and the 6,528
   LayerNorm biases (104,832 in all, pinned by a test).
+
+## 16. Modern parts II: SwiGLU and grouped-query attention
+
+- **Two more switches.** `feed_forward` (`gelu` or `swiglu`) and `kv_heads` (the number of key/value
+  heads; unset means one per query head, as in v1). The v1 fingerprint still matches, and the full v1
+  checkpoint still writes the README samples token for token.
+- **SwiGLU** (Shazeer, 2020). Two layers widen each token, one to values and one to a gate; the gate
+  passes through SiLU and multiplies the values, and a third layer narrows back. The hidden width is
+  two thirds of v1's 4×, rounded up to a multiple of 64: 1,024 at width 384, so the three matrices hold
+  exactly as many weights as v1's two (1,179,648, tested).
+- **Grouped-query attention** (Ainslie et al., 2023). Six query heads share two key/value heads, three
+  queries per group. Attention keeps one `qkv` layer, now `width + 2·kv_heads·head_width` wide (640
+  instead of 1,152), and each key/value head is repeated across its group before the scores. With as
+  many key/value heads as query heads, the layer is exactly v1's. A test builds an ordinary multi-head
+  layer from a GQA layer's weights, with each key/value head copied to its group, and requires the same
+  outputs. The point is the KV cache: it will store 2 heads instead of 6 per layer, 4 KB per token
+  instead of 12 KB in bf16.
+- **The v2 model** (RMSNorm, RoPE, SwiGLU, two key/value heads) has **14,189,952 parameters**, 10.6%
+  fewer than v1, matched exactly in a test: −1,576,960 (GQA), −98,304 (position table), −6,528 (norm
+  biases), +4,096 (SwiGLU's extra bias).
