@@ -326,3 +326,6 @@ What was built, in order, and why.
   and computation at scale; at 14M parameters, in eager PyTorch, they cost time instead. This is the
   baseline the next lessons (the KV cache, fused attention, CUDA graphs) work from, and a profile of the
   v2 step comes first.
+- **Profile.** `profile --dtype bfloat16` confirms it: a v2 step launches **431 kernels against v1's 189**
+  (2.3×), while the GPU is busy for about 1.0–1.7 ms of a 14 ms step (v1: 0.6–1.2 of 7.8 ms, measured in
+  the same session). Each extra kernel costs about 26 µs of launch time, and that accounts for the gap.
