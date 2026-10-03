@@ -9,7 +9,8 @@ from pathlib import Path
 import torch
 
 from hello_tokens.corpus.download import download_all
-from hello_tokens.corpus.encode import encode_file
+from hello_tokens.corpus.encode import encode_file, load_tokens
+from hello_tokens.evaluation.perplexity import perplexity
 from hello_tokens.corpus.sample import read_sample
 from hello_tokens.tokenizer.tokenizer import Tokenizer
 from hello_tokens.generation.sampling import generate
@@ -59,7 +60,22 @@ def main(argv: list[str] | None = None) -> int:
     write.add_argument("--top-p", type=float, default=0.95)
     write.add_argument("--seed", type=int, default=None)
     write.add_argument("--data-dir", type=Path, default=Path("data"))
+    eval_cmd = commands.add_parser("eval", help="perplexity of a trained model on every held-out token")
+    eval_cmd.add_argument("--name", default="v1", help="which run's checkpoint to use")
+    eval_cmd.add_argument("--data-dir", type=Path, default=Path("data"))
     args = parser.parse_args(argv)
+
+    if args.command == "eval":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = load_model(Path("checkpoints") / f"{args.name}.pt", device)
+        started = time.perf_counter()
+        # Scored in float32, not bf16, so the reported number carries no rounding from lower precision.
+        score = perplexity(model, load_tokens(args.data_dir / "tokens" / "valid.bin"), device=device)
+        print(f"{args.name} on held-out text: {score.tokens:,} tokens scored in "
+              f"{time.perf_counter() - started:.0f} s")
+        print(f"loss        {score.loss:.4f}")
+        print(f"perplexity  {score.perplexity:.3f}")
+        return 0
 
     if args.command == "write":
         device = "cuda" if torch.cuda.is_available() else "cpu"

@@ -154,3 +154,19 @@ What was built, in order, and why.
 - **Baseline speed: about 152 tokens/s (6.6 ms per token)** on the RTX 4060, flat between 50 and 200
   new tokens. This is the reference point for v2's inference work, which starts by profiling where a
   step's time goes.
+
+## 12. Perplexity and the v1 release
+
+- **Perplexity over the whole held-out file.** `hello_tokens/evaluation/perplexity.py` cuts the
+  token file into back-to-back windows of 256 predictions, where the last token of one window is the
+  first input of the next, so every token after the first is scored exactly once. Losses are summed in
+  float32 and divided once at the end, so the shorter final window carries exactly its share.
+- **`python -m hello_tokens eval`** scores the held-out file in float32 rather than bf16, so the
+  reported number carries no rounding from mixed precision.
+- **Tests.** The token count is exact; a model with all-zero weights, which gives every token equal
+  probability, scores exactly the vocabulary size (64 for the test model); the batch size does not
+  change the result; and the result matches scoring each window by hand.
+- **Result.** 5,683,947 held-out tokens in 43 s: **loss 1.2866, perplexity 3.62.** This agrees with
+  the 1.286 that training measured on a fixed sample of 50 batches, so the sample was representative.
+- **v1 is complete.** The README now presents the results, sample stories, the loss chart and how each
+  component works.
