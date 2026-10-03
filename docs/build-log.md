@@ -102,3 +102,16 @@ What was built, in order, and why.
   causality check: changing token 7 leaves outputs 0–6 exactly unchanged.
 - **No dropout** in v1: with 563 million tokens and less than one pass over them, overfitting is not a
   risk.
+
+## 8. The block and the full model
+
+- **Block.** Pre-norm GPT-2 style: `x + attention(LayerNorm(x))`, then `x + feed_forward(LayerNorm(x))`.
+  The feed-forward network widens each token 4× (384 → 1,536), applies GELU, and narrows back.
+- **GPT.** Embedding, 8 blocks, a final LayerNorm, and an output layer giving one logit per vocabulary
+  entry at every position. The output layer is tied to the token embedding table.
+- **Initialisation.** Weights drawn with standard deviation 0.02, biases zero; the two residual
+  projections per block are scaled by 1/√(2·layers) so the residual stream does not grow with depth.
+- **15,867,648 parameters**, matched exactly against a hand-derived formula in the tests.
+- **Sanity check at initialisation.** The loss on unseen random targets is ln(4,096) ≈ 8.32, the
+  uniform-guess baseline. Using the inputs as targets instead gives 7.59, because a tied model
+  initially favours repeating its input; the test uses independent targets.
