@@ -46,6 +46,28 @@ def test_an_interrupted_run_resumes_where_it_stopped(data_dir, tmp_path, capsys)
     assert [r["step"] for r in read_log(out)] == ["10", "20", "30"]
 
 
+def test_resuming_with_a_different_model_shape_is_refused(data_dir, tmp_path):
+    out = tmp_path / "out"
+    run(data_dir, out, steps=10)
+    config = TrainConfig(name="test", batch_size=4, steps=20, warmup=5, eval_every=10, eval_batches=2)
+    modern = ModelConfig(vocab_size=64, context=16, width=32, layers=2, heads=4, norm="rmsnorm")
+    with pytest.raises(ValueError, match="different model shape"):
+        train(data_dir, out, config, modern, device="cpu", precision=None)
+
+
+def test_the_v2_shape_trains_and_reloads(data_dir, tmp_path):
+    v2 = ModelConfig(vocab_size=64, context=16, width=32, layers=2, heads=4, norm="rmsnorm",
+                     position="rope", feed_forward="swiglu", kv_heads=2)
+    config = TrainConfig(name="v2test", batch_size=4, steps=10, warmup=2, eval_every=10, eval_batches=2,
+                         checkpoint_every=10)
+    model = train(data_dir, tmp_path, config, v2, device="cpu", precision=None)
+    loaded = load_model(tmp_path / "checkpoints" / "v2test.pt")
+    assert loaded.config == v2  # the checkpoint remembers its shape
+    ids = torch.randint(0, 64, (1, 8))
+    model.eval()
+    assert torch.allclose(model(ids), loaded(ids))
+
+
 def test_a_saved_model_reloads_identically(data_dir, tmp_path):
     out = tmp_path / "out"
     model = run(data_dir, out, steps=10)

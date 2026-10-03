@@ -36,3 +36,14 @@ class ModelConfig:
     @property
     def kv_head_count(self) -> int:
         return self.kv_heads or self.heads
+
+
+# Named shapes for `train --model`. Each adds one change to the one before it, so training them in
+# order shows what each change does on its own (an ablation); "v2" has all four.
+PRESETS = {
+    "v1": ModelConfig(),
+    "rmsnorm": ModelConfig(norm="rmsnorm"),
+    "rope": ModelConfig(norm="rmsnorm", position="rope"),
+    "swiglu": ModelConfig(norm="rmsnorm", position="rope", feed_forward="swiglu"),
+    "v2": ModelConfig(norm="rmsnorm", position="rope", feed_forward="swiglu", kv_heads=2),
+}

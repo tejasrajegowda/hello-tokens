@@ -77,6 +77,19 @@ def test_the_v2_model_is_causal():
     assert torch.allclose(model(ids)[0, :5], model(changed)[0, :5])
 
 
+def test_each_preset_adds_one_change_to_the_one_before():
+    from dataclasses import asdict
+
+    from hello_tokens.model.config import PRESETS
+
+    names = list(PRESETS)
+    assert names == ["v1", "rmsnorm", "rope", "swiglu", "v2"]
+    assert PRESETS["v1"] == ModelConfig() and PRESETS["v2"] == V2
+    for before, after in zip(names, names[1:]):
+        a, b = asdict(PRESETS[before]), asdict(PRESETS[after])
+        assert sum(a[k] != b[k] for k in a) == 1  # exactly one field differs
+
+
 def test_bad_switch_values_are_rejected():
     with pytest.raises(ValueError):
         ModelConfig(feed_forward="relu")

@@ -111,6 +111,9 @@ def train(
     step = 0
     if checkpoint_path.exists():
         checkpoint = torch.load(checkpoint_path, map_location=device)
+        if ModelConfig(**checkpoint["model_config"]) != model_config:
+            raise ValueError(f"checkpoint {checkpoint_path} holds a different model shape; "
+                             "resume with the same --model, or choose a new --name")
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         step = checkpoint["step"]

@@ -13,6 +13,7 @@ from hello_tokens.corpus.download import download_all
 from hello_tokens.corpus.encode import encode_file, load_tokens
 from hello_tokens.evaluation.perplexity import perplexity
 from hello_tokens.corpus.sample import read_sample
+from hello_tokens.model.config import PRESETS
 from hello_tokens.tokenizer.tokenizer import Tokenizer
 from hello_tokens.generation.power import opt_out_of_power_throttling
 from hello_tokens.generation.profile_step import profile_steps
@@ -52,7 +53,10 @@ def main(argv: list[str] | None = None) -> int:
     prepare.add_argument("--vocab-size", type=int, default=4096, help="tokenizer vocabulary size")
     train_cmd = commands.add_parser("train", help="train the model (resumes a run of the same name)")
     train_cmd.add_argument("--name", default="v1", help="run name: checkpoints/<name>.pt, runs/<name>/")
+    train_cmd.add_argument("--model", default="v1", choices=list(PRESETS), help="model shape preset")
     train_cmd.add_argument("--steps", type=int, default=TrainConfig.steps)
+    train_cmd.add_argument("--warmup", type=int, default=TrainConfig.warmup, help="warm-up steps")
+    train_cmd.add_argument("--seed", type=int, default=TrainConfig.seed)
     train_cmd.add_argument("--data-dir", type=Path, default=Path("data"))
     write = commands.add_parser("write", help="write a story with a trained model")
     write.add_argument("prompt", nargs="?", default="Once upon a time")
@@ -112,7 +116,8 @@ def main(argv: list[str] | None = None) -> int:
         print(args.prompt + tokenizer.decode(new))
         return 0
     if args.command == "train":
-        train(args.data_dir, Path("."), TrainConfig(name=args.name, steps=args.steps))
+        config = TrainConfig(name=args.name, steps=args.steps, warmup=args.warmup, seed=args.seed)
+        train(args.data_dir, Path("."), config, PRESETS[args.model])
         return 0
     if args.command == "check":
         return check()
