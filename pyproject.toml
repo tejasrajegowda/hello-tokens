@@ -6,13 +6,18 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.14"
 dependencies = [
+    "fastapi>=0.142.2",
     "matplotlib>=3.11.2",
     "numpy>=2.5.3",
     "torch>=2.14",
+    "uvicorn>=0.54.0",
 ]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "httpx2>=2.13.1",
+    "pytest>=8",
+]
 
 # PyTorch's CUDA builds are published on PyTorch's own index, not on PyPI.
 [[tool.uv.index]]

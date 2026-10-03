@@ -79,12 +79,18 @@ def main(argv: list[str] | None = None) -> int:
     bench.add_argument("--skip-quality", action="store_true", help="don't compute held-out perplexity")
     bench.add_argument("--table", action="store_true", help="only print the table of saved rows")
     bench.add_argument("--data-dir", type=Path, default=Path("data"))
+    play = commands.add_parser("play", help="open the playground: the models write side by side in a browser")
+    play.add_argument("--port", type=int, default=8000)
+    play.add_argument("--no-browser", action="store_true", help="don't open a browser window")
+    play.add_argument("--data-dir", type=Path, default=Path("data"))
     args = parser.parse_args(argv)
     # Without this, Windows slows a long-running process about 3x after a second (see power.py).
     opt_out_of_power_throttling()
 
     if args.command == "bench":
         return run_bench(args)
+    if args.command == "play":
+        return run_play(args)
     if args.command == "profile":
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = load_model(Path("checkpoints") / f"{args.name}.pt", device).to(getattr(torch, args.dtype))
@@ -146,6 +152,44 @@ def run_bench(args) -> int:
             result.perplexity = perplexity(model, tokens, device=device).perplexity
         print(f"saved {save_result(result, RESULTS)}")
     print(format_table(load_results(RESULTS)))
+    return 0
+
+
+PLAYGROUND_MODELS = {"v1": "classic GPT", "v2": "modern: RoPE, RMSNorm, SwiGLU, GQA"}
+
+
+def run_play(args) -> int:
+    """Load every trained model that exists, warm it up, and serve the playground on this machine only."""
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from hello_tokens.serving.app import Entry, create_app
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype = torch.bfloat16 if device == "cuda" else torch.float32  # bf16 is slow and imprecise on a CPU
+    tokenizer = Tokenizer.load(args.data_dir / "tokenizer.bpe")
+    benchmarks = {r["row"]: r for r in load_results(RESULTS)} if RESULTS.exists() else {}
+    models = {}
+    for name, label in PLAYGROUND_MODELS.items():
+        path = Path("checkpoints") / f"{name}.pt"
+        if not path.exists():
+            continue
+        model = load_model(path, device).to(dtype)
+        generate(model, tokenizer.encode("Once upon a time"), 8, seed=0)  # warm-up: start-up costs paid here
+        row = benchmarks.get(f"{name} {'bf16' if dtype == torch.bfloat16 else 'fp32'}")
+        speed = next((p["tokens_per_s"] for p in row["points"] if p["new_tokens"] == 224), None) if row else None
+        models[name] = Entry(model, label, speed)
+    if not models:
+        print("no trained models found in checkpoints/: run `train` first")
+        return 1
+    url = f"http://127.0.0.1:{args.port}"
+    print(f"playground: {url}  ({', '.join(models)} on {device}; Ctrl+C to stop)")
+    if not args.no_browser:
+        threading.Timer(1.5, webbrowser.open, [url]).start()
+    # 127.0.0.1: reachable from this computer only, never from the network.
+    uvicorn.run(create_app(models, tokenizer, device), host="127.0.0.1", port=args.port, log_level="warning")
     return 0
 
 

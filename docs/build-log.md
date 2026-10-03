@@ -329,3 +329,23 @@ What was built, in order, and why.
 - **Profile.** `profile --dtype bfloat16` confirms it: a v2 step launches **431 kernels against v1's 189**
   (2.3×), while the GPU is busy for about 1.0–1.7 ms of a 14 ms step (v1: 0.6–1.2 of 7.8 ms, measured in
   the same session). Each extra kernel costs about 26 µs of launch time, and that accounts for the gap.
+
+## 19. The playground
+
+- **`python -m hello_tokens play`** starts a local web app (FastAPI, served on 127.0.0.1 only) and opens
+  a page where every trained model continues the same prompt side by side. The models take turns, one
+  token each, so both stories grow together. Sliders set temperature, top-p and length; a seed makes a
+  story reproducible.
+- **What it shows.** Each word is tinted by how unsure the model was, using its own probabilities before
+  the sampling settings; hovering a word lists the five likeliest words and their odds. Each side shows
+  a live speed, timing only that model's forward pass and sampling, beside its benchmark figure.
+- **Implementation.** `generate_stream` yields one token at a time, optionally with the softmax
+  probability and top five, which are computed after the step's timer stops; `generate` now wraps it,
+  with unchanged output. Each model gets its own random generator, so one never alters the other's story.
+  Text is decoded with an incremental UTF-8 decoder, because a character can be split across two
+  tokens. One story runs at a time: a second request gets 409, and a story that stalls for 30 seconds
+  counts as abandoned. The app is built by `create_app(models, tokenizer, device)`, so tests run on tiny
+  random models.
+- **Tests.** The streamed text equals `generate`'s output for the same seed, for both models. The
+  reported odds are sorted, positive and at most five. Invalid settings and over-long prompts get 422.
+  The busy and stale rules hold, and a split character is joined correctly.

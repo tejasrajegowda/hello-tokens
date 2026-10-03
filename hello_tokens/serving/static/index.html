@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>hello-tokens playground</title>
+<style>
+  :root {
+    --bg: #f7f6f3; --panel: #ffffff; --text: #1f2328; --muted: #6b7078; --line: #e3e1dc;
+    --accent: #3b5bdb; --unsure: 232, 89, 12; --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #15171a; --panel: #1d2024; --text: #e8e6e3; --muted: #9aa0a8; --line: #2e3238;
+            --accent: #7c95ff; --unsure: 255, 140, 66; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.35rem; margin: 0 0 2px; }
+  .sub { color: var(--muted); margin: 0 0 20px; font-size: .95rem; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  textarea { width: 100%; min-height: 64px; resize: vertical; font: inherit; color: inherit; background: transparent;
+             border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; margin-top: 12px; }
+  .controls label { display: flex; align-items: center; gap: 8px; font-size: .9rem; color: var(--muted); }
+  .controls output { color: var(--text); min-width: 2.6em; font-variant-numeric: tabular-nums; }
+  input[type=number] { width: 7.5em; font: inherit; color: inherit; background: transparent;
+                       border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+  button { font: inherit; border: 0; border-radius: 8px; padding: 9px 20px; cursor: pointer;
+           background: var(--accent); color: #fff; font-weight: 600; }
+  button.ghost { background: transparent; color: var(--accent); padding: 4px 8px; font-weight: 500; }
+  button:disabled { opacity: .5; cursor: default; }
+  .status { margin-top: 10px; font-size: .9rem; color: var(--muted); min-height: 1.4em; }
+  .status.error { color: rgb(var(--unsure)); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 16px; }
+  .col h2 { font-size: 1.05rem; margin: 0; }
+  .col .label { color: var(--muted); font-size: .88rem; }
+  .stats { display: flex; gap: 18px; flex-wrap: wrap; margin: 10px 0 12px; font-size: .88rem; color: var(--muted); }
+  .stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .story { white-space: pre-wrap; min-height: 160px; font-size: 1.02rem; }
+  .story .prompt { color: var(--muted); }
+  .story span.t { border-radius: 3px; cursor: default; }
+  .story .state { display: block; margin-top: 10px; font-size: .85rem; color: var(--muted); }
+  .legend { display: flex; align-items: center; gap: 10px; margin-top: 18px; font-size: .88rem; color: var(--muted); flex-wrap: wrap; }
+  .swatch { display: inline-block; width: 120px; height: 12px; border-radius: 3px;
+            background: linear-gradient(90deg, rgba(var(--unsure), 0), rgba(var(--unsure), .55)); }
+  #tip { position: fixed; pointer-events: none; display: none; z-index: 10; min-width: 220px; max-width: 320px;
+         background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+         box-shadow: 0 6px 24px rgba(0, 0, 0, .18); font-size: .88rem; }
+  #tip .row { display: grid; grid-template-columns: 1fr 52px; gap: 8px; align-items: center; margin-top: 4px; }
+  #tip .bar { height: 6px; border-radius: 3px; background: var(--accent); }
+  #tip .word { font-family: ui-monospace, Consolas, monospace; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+  #tip .chosen { font-weight: 700; }
+  .note { margin-top: 20px; font-size: .85rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>hello-tokens playground</h1>
+  <p class="sub">Type the start of a story. Both models continue it at the same time, one word-piece each in turn.</p>
+
+  <section class="panel">
+    <textarea id="prompt" aria-label="Story opening">Once upon a time, a little fox</textarea>
+    <div class="controls">
+      <label>temperature <input id="temperature" type="range" min="0" max="2" step="0.05" value="0.8"><output for="temperature"></output></label>
+      <label>top-p <input id="top_p" type="range" min="0.05" max="1" step="0.05" value="0.95"><output for="top_p"></output></label>
+      <label>length <input id="max_tokens" type="range" min="10" max="400" step="10" value="200"><output for="max_tokens"></output></label>
+      <label>seed <input id="seed" type="number" min="0" placeholder="random"><button class="ghost" id="clearSeed" type="button">random</button></label>
+      <button id="write" type="button">Write</button>
+    </div>
+    <div class="status" id="status" role="status"></div>
+  </section>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="legend"><span>model was sure</span><span class="swatch"></span><span>model had to choose</span>
+    <span>· hover a word to see the odds of its five likeliest words</span></div>
+  <p class="note">
+    <b>temperature</b>: lower is safer and plainer, higher is more adventurous (0 always takes the likeliest word).
+    <b>top-p</b>: only the likeliest words that add up to this share may be picked.
+    The odds shown are the model's own, before these settings. The models read only the last 256 tokens.
+    The same seed writes the same story again (on the same device).
+    <b>Live speed</b> times only each model's own steps in this run; it's lower than the benchmark figure because
+    the page also asks each step for its odds, and the first story includes start-up.
+  </p>
+</main>
+<div id="tip"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const sliders = ["temperature", "top_p", "max_tokens"];
+const cols = {};          // per model: elements, timings, token details
+let models = [];
+
+for (const id of sliders) {
+  const input = $(id), out = input.nextElementSibling;
+  const show = () => { out.textContent = input.value; };
+  input.addEventListener("input", show); show();
+}
+$("clearSeed").onclick = () => { $("seed").value = ""; };
+
+function fmt(n) { return n.toLocaleString("en-US"); }
+
+async function loadModels() {
+  models = await (await fetch("/models")).json();
+  const grid = $("grid");
+  grid.innerHTML = "";
+  for (const m of models) {
+    const col = document.createElement("section");
+    col.className = "panel col";
+    const bench = m.benchmark_tokens_per_s ? `<span>benchmark <b>${Math.round(m.benchmark_tokens_per_s)}</b> tok/s</span>` : "";
+    col.innerHTML = `
+      <h2>${m.name}</h2>
+      <div class="label">${m.label} · ${fmt(m.parameters)} parameters · ${m.device}</div>
+      <div class="stats"><span>live speed <b class="speed">–</b> tok/s</span>
+        <span>first word <b class="first">–</b> ms</span><span>words <b class="count">0</b></span>${bench}</div>
+      <div class="story"></div>`;
+    grid.appendChild(col);
+    cols[m.name] = { story: col.querySelector(".story"), speed: col.querySelector(".speed"),
+                     first: col.querySelector(".first"), count: col.querySelector(".count"), ms: [], details: [] };
+  }
+}
+
+function reset(prompt) {
+  for (const c of Object.values(cols)) {
+    c.ms = []; c.details = [];
+    c.story.innerHTML = "";
+    const p = document.createElement("span");
+    p.className = "prompt"; p.textContent = prompt;
+    c.story.appendChild(p);
+    c.speed.textContent = "–"; c.first.textContent = "–"; c.count.textContent = "0";
+  }
+}
+
+function median(xs) { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; }
+
+function addToken(d) {
+  const c = cols[d.model]; if (!c) return;
+  c.ms.push(d.ms); c.details.push(d);
+  const span = document.createElement("span");
+  span.className = "t"; span.textContent = d.text; span.dataset.i = c.details.length - 1; span.dataset.m = d.model;
+  // Stronger tint = the model was less sure of this word.
+  span.style.background = `rgba(var(--unsure), ${(0.55 * (1 - d.probability)).toFixed(3)})`;
+  c.story.appendChild(span);
+  if (c.ms.length === 1) c.first.textContent = d.ms.toFixed(1);
+  c.speed.textContent = Math.round(1000 / median(c.ms));
+  c.count.textContent = c.ms.length;
+}
+
+function finish(d) {
+  const c = cols[d.model]; if (!c) return;
+  if (d.text) c.story.appendChild(document.createTextNode(d.text));
+  const s = document.createElement("span");
+  s.className = "state";
+  s.textContent = d.reason === "end" ? "— the model ended the story" : "— stopped at the length limit";
+  c.story.appendChild(s);
+}
+
+async function write() {
+  const button = $("write"), status = $("status");
+  const body = { prompt: $("prompt").value, temperature: +$("temperature").value, top_p: +$("top_p").value,
+                 max_tokens: +$("max_tokens").value, seed: $("seed").value === "" ? null : +$("seed").value };
+  button.disabled = true; status.className = "status"; status.textContent = "writing…";
+  reset(body.prompt);
+  try {
+    const response = await fetch("/write", { method: "POST", headers: { "Content-Type": "application/json" },
+                                             body: JSON.stringify(body) });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      const detail = typeof err.detail === "string" ? err.detail : "check the settings";
+      throw new Error(`${response.status}: ${detail}`);
+    }
+    const reader = response.body.getReader(), decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let cut;
+      while ((cut = buffer.indexOf("\n\n")) >= 0) {
+        const block = buffer.slice(0, cut); buffer = buffer.slice(cut + 2);
+        const kind = block.match(/^event: (.*)$/m)?.[1], data = JSON.parse(block.match(/^data: (.*)$/m)[1]);
+        if (kind === "start") status.textContent = `writing… seed ${data.seed} (type it in to write this story again)`;
+        else if (kind === "token") addToken(data);
+        else if (kind === "done") finish(data);
+      }
+    }
+    status.textContent = status.textContent.replace("writing…", "done ·");
+  } catch (e) {
+    status.className = "status error"; status.textContent = e.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+$("write").onclick = write;
+$("prompt").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) write(); });
+
+// The hover card: the model's own odds for its five likeliest next words.
+const tip = $("tip");
+document.addEventListener("mouseover", (e) => {
+  const t = e.target.closest("span.t"); if (!t) return;
+  const d = cols[t.dataset.m].details[+t.dataset.i];
+  const rows = d.top.map(([word, p]) => `
+    <div class="row"><div class="word ${word === d.text ? "chosen" : ""}">${JSON.stringify(word).slice(1, -1)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")}</div><div>${(100 * p).toFixed(1)}%</div></div>
+    <div class="bar" style="width:${Math.max(2, 100 * p)}%"></div>`).join("");
+  tip.innerHTML = `<div>${t.dataset.m} gave this word <b>${(100 * d.probability).toFixed(1)}%</b> · ${d.ms.toFixed(1)} ms</div>${rows}`;
+  tip.style.display = "block";
+});
+document.addEventListener("mousemove", (e) => {
+  if (tip.style.display !== "block") return;
+  const x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+  const y = Math.min(e.clientY + 16, window.innerHeight - tip.offsetHeight - 8);
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+});
+document.addEventListener("mouseout", (e) => { if (e.target.closest("span.t")) tip.style.display = "none"; });
+
+loadModels().catch(() => { $("status").textContent = "could not reach the server"; });
+</script>
+</body>
+</html>
