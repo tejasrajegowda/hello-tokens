@@ -85,3 +85,20 @@ What was built, in order, and why.
   them without loading them into memory.
 - **Result.** Training: 562,963,642 tokens (1.13 GB, 435 s); validation: 5,683,948 tokens. 3.96 bytes
   of text per token over the whole corpus. The largest id in both files is the special token, 4,095.
+
+## 7. Embeddings and causal self-attention
+
+- **`ModelConfig`** holds the shape in one frozen dataclass: vocabulary 4,096, context 256, width
+  384, 8 layers, 6 heads of 64.
+- **Embedding.** A learned token table plus a learned position table, summed, since attention alone
+  is blind to order.
+- **Attention, written by hand** rather than with PyTorch's fused kernel, so it can be inspected and
+  later benchmarked against it. Scores are query·key / √64; a causal mask sets every future position
+  to −∞ before softmax, so future tokens receive exactly zero weight; the output is the weighted sum
+  of values.
+- **Multi-head.** One linear layer produces queries, keys and values for all six heads; heads run in
+  parallel as an extra tensor dimension and are recombined by an output projection.
+- **Tests** include a hand-worked case (equal scores average the past: 0, 0.5, 1.0, 1.5) and a
+  causality check: changing token 7 leaves outputs 0–6 exactly unchanged.
+- **No dropout** in v1: with 563 million tokens and less than one pass over them, overfitting is not a
+  risk.
