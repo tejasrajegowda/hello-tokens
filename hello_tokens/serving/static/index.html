@@ -218,7 +218,15 @@ document.addEventListener("mousemove", (e) => {
 });
 document.addEventListener("mouseout", (e) => { if (e.target.closest("span.t")) tip.style.display = "none"; });
 
-loadModels().catch(() => { $("status").textContent = "could not reach the server"; });
+if (location.protocol === "file:") {
+  // Opened straight from disk: there is no server behind the page, so nothing can be written.
+  $("status").className = "status error";
+  $("status").textContent = "This page needs its server. Run `uv run python -m hello_tokens play` "
+    + "and use the address it prints (http://127.0.0.1:8000).";
+  $("write").disabled = true;
+} else {
+  loadModels().catch(() => { $("status").textContent = "could not reach the server: is `play` still running?"; });
+}
 </script>
 </body>
 </html>
