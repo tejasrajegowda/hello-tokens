@@ -269,3 +269,36 @@ What was built, in order, and why.
 - **The v2 model** (RMSNorm, RoPE, SwiGLU, two key/value heads) has **14,189,952 parameters**, 10.6%
   fewer than v1, matched exactly in a test: −1,576,960 (GQA), −98,304 (position table), −6,528 (norm
   biases), +4,096 (SwiGLU's extra bias).
+
+## 17. Ablations: what each modern part does
+
+- **`train --model`** selects a preset; each adds one change to the one before (`v1`, `rmsnorm`,
+  `rope`, `swiglu`, `v2`), and a test checks that exactly one setting differs between neighbours.
+  Resuming a checkpoint with a different shape is refused.
+- **Method.** Six short runs of 4,000 steps (65.5M tokens, 200 warm-up steps, otherwise v1's recipe),
+  each scored on all 5,683,947 held-out tokens. v1 was trained twice with different seeds to measure
+  run-to-run noise. The changes are cumulative, so each row's effect is measured on top of the rows
+  above it. Results: [`benchmarks/ablations.json`](../benchmarks/ablations.json).
+
+| run | held-out loss | change vs row above | perplexity | parameters |
+|---|---|---|---|---|
+| v1 (seed 0) | 1.5126 | | 4.539 | 15,867,648 |
+| v1 (seed 1) | 1.5128 | +0.0002 (noise) | 4.539 | 15,867,648 |
+| + RMSNorm | 1.5130 | +0.0004 | 4.540 | 15,861,120 |
+| + RoPE | 1.4785 | **−0.0345** | 4.386 | 15,762,816 |
+| + SwiGLU | 1.4686 | **−0.0099** | 4.343 | 15,766,912 |
+| + GQA (= v2) | 1.4684 | −0.0002 | 4.342 | 14,189,952 |
+
+- **Reading.** The two v1 seeds differ by 0.0002, so differences of that size are noise.
+  - **RoPE** is the largest gain, about 170 times the noise: relative positions suit language better
+    than a learned table of absolute ones.
+  - **SwiGLU** adds a further gain, about 50 times the noise, with the same number of weights.
+  - **RMSNorm** has no measurable effect on quality; its case is simplicity and cost.
+  - **GQA** costs nothing measurable while removing 10% of the parameters, and will make the KV
+    cache three times smaller.
+  - In all, perplexity falls 4.3% at the same training budget.
+- **Limits.** One seed per variant, and short runs: gaps at 4,000 steps can shrink or grow over a full
+  run, which the full v2 run measures next. Training was also slower per step with the modern parts
+  (16 → 19.5 minutes per run, evaluation included). RMSNorm and RoPE are written as several small
+  operations, where LayerNorm is a single fused PyTorch kernel. That is a training-speed cost, not an
+  inference result.

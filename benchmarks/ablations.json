@@ -1,0 +1,44 @@
+{
+  "abl-v1-s0": {
+    "preset": "v1",
+    "seed": 0,
+    "loss": 1.5126,
+    "perplexity": 4.539,
+    "minutes": 16.0
+  },
+  "abl-v1-s1": {
+    "preset": "v1",
+    "seed": 1,
+    "loss": 1.5128,
+    "perplexity": 4.539,
+    "minutes": 15.4
+  },
+  "abl-rmsnorm": {
+    "preset": "rmsnorm",
+    "seed": 0,
+    "loss": 1.513,
+    "perplexity": 4.54,
+    "minutes": 18.0
+  },
+  "abl-rope": {
+    "preset": "rope",
+    "seed": 0,
+    "loss": 1.4785,
+    "perplexity": 4.386,
+    "minutes": 19.1
+  },
+  "abl-swiglu": {
+    "preset": "swiglu",
+    "seed": 0,
+    "loss": 1.4686,
+    "perplexity": 4.343,
+    "minutes": 20.4
+  },
+  "abl-v2": {
+    "preset": "v2",
+    "seed": 0,
+    "loss": 1.4684,
+    "perplexity": 4.342,
+    "minutes": 19.5
+  }
+}
