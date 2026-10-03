@@ -128,3 +128,18 @@ What was built, in order, and why.
 - **Proof of learning.** On one fixed batch the loss falls from about 4.2 to 0.007 in 150 steps.
 - **Faster tests.** Limiting PyTorch to 4 CPU threads for the tiny test models cut the suite from
   42 s to 7 s; thread coordination outweighed the work.
+
+## 10. The first training run
+
+- **Throughput, measured.** On an RTX 4060 Laptop GPU (8 GB) with bf16 autocast, batch sizes 32,
+  64 and 96 all ran at 73–81k tokens/s. Batch 64 (16,384 tokens per step, 3.7 GB) was chosen.
+- **Run.** 20,000 steps, 327,680,000 tokens (about 20 per parameter), peak learning rate 1e-3 with
+  1,000 warm-up steps and cosine decay to 1e-4. Evaluation every 500 steps on fixed held-out batches;
+  resumable checkpoints every 1,000 steps.
+- **Result.** Held-out loss 8.32 → **1.286** (perplexity 3.6) in 78.5 minutes. Training loss 1.280: the
+  gap of 0.006 shows no overfitting. The curve was still falling at the end.
+
+![Loss during the first training run](images/v1-loss.png)
+
+- **Samples.** From "Once upon a time" at temperature 0.8, the model writes coherent short stories
+  with named characters and an ending, and stops by emitting `<|endoftext|>` itself.
