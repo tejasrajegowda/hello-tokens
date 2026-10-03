@@ -38,6 +38,8 @@ class Tokenizer:
         self.pieces = {i: bytes([i]) for i in range(256)}
         for (left, right), new_id in merges.items():  # merges are in learned order
             self.pieces[new_id] = self.pieces[left] + self.pieces[right]
+        # A word repeats millions of times in a corpus; work out its tokens once, then look it up.
+        self._cache: dict[str, list[int]] = {}
 
     @classmethod
     def train(cls, text: str, vocab_size: int) -> "Tokenizer":
@@ -68,6 +70,8 @@ class Tokenizer:
         return cls(merges)
 
     def _encode_chunk(self, chunk: str) -> list[int]:
+        if (cached := self._cache.get(chunk)) is not None:
+            return cached
         ids = list(chunk.encode("utf-8"))
         while len(ids) >= 2:
             # Apply the earliest-learned merge present, the order training used.
@@ -75,6 +79,7 @@ class Tokenizer:
             if pair not in self.merges:
                 break
             ids = merge(ids, pair, self.merges[pair])
+        self._cache[chunk] = ids
         return ids
 
     def encode(self, text: str) -> list[int]:

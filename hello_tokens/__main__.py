@@ -9,6 +9,7 @@ from pathlib import Path
 import torch
 
 from hello_tokens.corpus.download import download_all
+from hello_tokens.corpus.encode import encode_file
 from hello_tokens.corpus.sample import read_sample
 from hello_tokens.tokenizer.tokenizer import Tokenizer
 
@@ -50,8 +51,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "prepare":
         download_all(args.data_dir)
         train_tokenizer(args.data_dir, args.sample_mb, args.vocab_size)
+        encode_corpus(args.data_dir)
         return 0
     return 2
+
+
+def encode_corpus(data_dir: Path) -> None:
+    """Encode the training and validation text into token files, unless they already exist."""
+    tokenizer = Tokenizer.load(data_dir / "tokenizer.bpe")
+    for split in ("train", "valid"):
+        destination = data_dir / "tokens" / f"{split}.bin"
+        if destination.exists():
+            print(f"tokens: {split} already present ({destination})")
+            continue
+        source = data_dir / "raw" / f"TinyStoriesV2-GPT4-{split}.txt"
+        print(f"tokens: encoding {source.name}", flush=True)
+        started = time.perf_counter()
+        count = encode_file(source, destination, tokenizer)
+        print(f"tokens: {split} {count:,} tokens in {time.perf_counter() - started:.0f} s -> {destination}")
 
 
 def train_tokenizer(data_dir: Path, sample_mb: float, vocab_size: int) -> None:

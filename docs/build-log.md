@@ -70,3 +70,18 @@ What was built, in order, and why.
   156 s, and all three compress held-out text to 3.95 bytes per token: TinyStories' vocabulary is
   covered by 5 MB. `prepare` uses 20 MB (197 s) for broader coverage of rare words. A typical
   sentence encodes to one token per word.
+
+## 6. Encoding the corpus
+
+- **Token files.** `prepare` encodes the training and validation text once into
+  `data/tokens/{train,valid}.bin`: flat arrays of `uint16` ids, two bytes per token, which the
+  4,096-id vocabulary guarantees will fit.
+- **Streaming in blocks.** Text is read about 16 MB at a time and each block is cut back to its last
+  `<|endoftext|>`; the unfinished story carries into the next block, so block boundaries never change
+  the tokens (tested with 37-character blocks).
+- **A chunk cache.** Each distinct chunk is encoded once and looked up thereafter. 20 MB of stories
+  contain only 12,682 distinct chunks, so encoding runs at 5.2 MB/s on one core.
+- **Memory-mapped reads.** Token files are opened with `numpy.memmap`, so training can sample from
+  them without loading them into memory.
+- **Result.** Training: 562,963,642 tokens (1.13 GB, 435 s); validation: 5,683,948 tokens. 3.96 bytes
+  of text per token over the whole corpus. The largest id in both files is the special token, 4,095.
