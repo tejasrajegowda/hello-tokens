@@ -201,3 +201,29 @@ What was built, in order, and why.
   this size. Fewer launches (fused attention, CUDA graphs) and fewer sequential steps (speculative
   decoding) should matter most. If launch overhead were removed entirely, a step would approach its
   GPU time, roughly 6-10x faster.
+
+## 14. The benchmark harness
+
+- **`python -m hello_tokens bench`** measures one variant as one row of a shared table and saves it to
+  `benchmarks/results/<row>.json`. The results are committed, so every speed figure in this
+  repository can be traced to a measurement.
+- **A fixed workload.** Greedy decoding and no stop token, so every variant writes exactly the
+  requested number of tokens, at three points (prompt + new tokens): 16 + 64, 16 + 224 and 128 + 128.
+  All stay within the 256-token context. The prompts are fixed random tokens: with no stop token,
+  speed depends only on how many tokens there are, not which.
+- **Method.** The process opts out of power throttling. A warm-up run is discarded, the GPU is
+  synchronized before every clock reading, and each figure is the median of five runs, reported with
+  its interquartile range. The time to the first token is measured separately; the per-token time is
+  the rest of the run divided by the remaining tokens. Each row records whether every run wrote
+  identical tokens, its full setup (model, dtype, cache, graphs, quantization, decoding), peak GPU
+  memory, model size, held-out perplexity, and the machine.
+- **The first two rows.**
+
+| row | tok/s (16+224) | ms/token | model MB | peak MB | perplexity |
+|---|---|---|---|---|---|
+| v1 fp32 | 168 | 5.95 | 63.5 | 83 | 3.620 |
+| v1 bf16 | 169 | 5.91 | 31.7 | 46 | 3.622 |
+
+- **Reading.** bf16 halves the memory at no measurable cost in quality (perplexity +0.002), and does
+  not change the speed, as the profile in section 13 predicted: the step is bound by kernel-launch
+  overhead, not arithmetic. Repeat runs agree within about 2%.

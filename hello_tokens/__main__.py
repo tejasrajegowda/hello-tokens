@@ -8,6 +8,7 @@ from pathlib import Path
 
 import torch
 
+from hello_tokens.benchmark.harness import Setup, format_table, load_results, run_benchmark, save_result
 from hello_tokens.corpus.download import download_all
 from hello_tokens.corpus.encode import encode_file, load_tokens
 from hello_tokens.evaluation.perplexity import perplexity
@@ -68,10 +69,18 @@ def main(argv: list[str] | None = None) -> int:
     profile_cmd = commands.add_parser("profile", help="where the time of one generation step goes")
     profile_cmd.add_argument("--name", default="v1", help="which run's checkpoint to use")
     profile_cmd.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
+    bench = commands.add_parser("bench", help="measure generation speed on the fixed workload; save a row")
+    bench.add_argument("--name", default="v1", help="which run's checkpoint to use")
+    bench.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
+    bench.add_argument("--skip-quality", action="store_true", help="don't compute held-out perplexity")
+    bench.add_argument("--table", action="store_true", help="only print the table of saved rows")
+    bench.add_argument("--data-dir", type=Path, default=Path("data"))
     args = parser.parse_args(argv)
     # Without this, Windows slows a long-running process about 3x after a second (see power.py).
     opt_out_of_power_throttling()
 
+    if args.command == "bench":
+        return run_bench(args)
     if args.command == "profile":
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = load_model(Path("checkpoints") / f"{args.name}.pt", device).to(getattr(torch, args.dtype))
@@ -113,6 +122,26 @@ def main(argv: list[str] | None = None) -> int:
         encode_corpus(args.data_dir)
         return 0
     return 2
+
+
+RESULTS = Path("benchmarks") / "results"
+
+
+def run_bench(args) -> int:
+    """Benchmark one checkpoint as one row, save it, and print every saved row."""
+    if not args.table:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = load_model(Path("checkpoints") / f"{args.name}.pt", device).to(getattr(torch, args.dtype))
+        row = f"{args.name} {'fp32' if args.dtype == 'float32' else 'bf16'}"
+        print(f"benchmarking {row} on {device}", flush=True)
+        result = run_benchmark(row, Setup(args.name, args.dtype), model,
+                               lambda prompt, n: generate(model, prompt, n, temperature=0, stop_id=None), device)
+        if not args.skip_quality:
+            tokens = load_tokens(args.data_dir / "tokens" / "valid.bin")
+            result.perplexity = perplexity(model, tokens, device=device).perplexity
+        print(f"saved {save_result(result, RESULTS)}")
+    print(format_table(load_results(RESULTS)))
+    return 0
 
 
 def encode_corpus(data_dir: Path) -> None:
