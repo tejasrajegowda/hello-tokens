@@ -227,3 +227,25 @@ What was built, in order, and why.
 - **Reading.** bf16 halves the memory at no measurable cost in quality (perplexity +0.002), and does
   not change the speed, as the profile in section 13 predicted: the step is bound by kernel-launch
   overhead, not arithmetic. Repeat runs agree within about 2%.
+
+## 15. Modern parts I: RMSNorm and rotary position embedding
+
+- **Switches, not a rewrite.** `ModelConfig` gains `norm` (`layernorm` or `rmsnorm`) and `position`
+  (`learned` or `rope`). The defaults are v1's design, and a checkpoint stores its own config, so every
+  v1 checkpoint rebuilds the v1 model exactly.
+- **Proof that v1 is untouched.** Before the model code changed, a small v1 model's weights and
+  outputs were recorded (`tests/model/fixtures/v1_golden.torch`, made by `make_v1_golden.py`). A test
+  loads those weights strictly into today's code and requires identical outputs within 1e-6. Loading
+  them into a RoPE model fails, as it should. The full v1 checkpoint still writes the README samples
+  token for token.
+- **RMSNorm** (Zhang and Sennrich, 2019): divide by the root mean square and apply a learned scale,
+  with no mean subtraction and no bias. Checked against a hand computation.
+- **RoPE** (Su et al., 2021): each head's 64 numbers form 32 pairs, and the pair *i* of a token at
+  position *p* is rotated by the angle *p*·*f*ᵢ, applied to queries and keys only. Since a dot product
+  of rotated vectors depends only on the difference of their angles, attention scores depend on the
+  distance between tokens, not their absolute positions. The test places the same query and key at
+  distances 2 and 2 (equal scores) and 5 (different). The rotation tables are fixed by the shape, so
+  they are not saved in checkpoints. An offset argument rotates a slice as if it sat later in a
+  sequence, which the KV cache will need.
+- **Parameters.** Together the two changes remove the 98,304-parameter position table and the 6,528
+  LayerNorm biases (104,832 in all, pinned by a test).

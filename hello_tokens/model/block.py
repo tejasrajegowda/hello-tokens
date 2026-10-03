@@ -5,6 +5,7 @@ from torch import nn
 
 from hello_tokens.model.attention import CausalSelfAttention
 from hello_tokens.model.config import ModelConfig
+from hello_tokens.model.norm import make_norm
 
 
 class FeedForward(nn.Module):
@@ -29,9 +30,9 @@ class Block(nn.Module):
 
     def __init__(self, config: ModelConfig):
         super().__init__()
-        self.norm1 = nn.LayerNorm(config.width)
+        self.norm1 = make_norm(config)
         self.attention = CausalSelfAttention(config)
-        self.norm2 = nn.LayerNorm(config.width)
+        self.norm2 = make_norm(config)
         self.feed_forward = FeedForward(config)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

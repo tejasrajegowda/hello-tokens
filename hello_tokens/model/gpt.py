@@ -7,6 +7,7 @@ from torch import nn
 
 from hello_tokens.model.block import Block
 from hello_tokens.model.config import ModelConfig
+from hello_tokens.model.norm import make_norm
 from hello_tokens.model.embedding import Embedding
 
 
@@ -18,7 +19,7 @@ class GPT(nn.Module):
         self.config = config
         self.embedding = Embedding(config)
         self.blocks = nn.ModuleList(Block(config) for _ in range(config.layers))
-        self.final_norm = nn.LayerNorm(config.width)
+        self.final_norm = make_norm(config)
         # Turns each token's vector into one score per vocabulary entry (the "logits").
         self.output = nn.Linear(config.width, config.vocab_size, bias=False)
         # Weight tying: the output layer reuses the token embedding table. Reading a token in and

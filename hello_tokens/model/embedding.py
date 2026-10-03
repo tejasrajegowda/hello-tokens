@@ -18,12 +18,15 @@ class Embedding(nn.Module):
         super().__init__()
         self.context = config.context
         self.token = nn.Embedding(config.vocab_size, config.width)
-        self.position = nn.Embedding(config.context, config.width)
+        # With RoPE, position is applied inside attention instead, so there is no position table.
+        self.position = nn.Embedding(config.context, config.width) if config.position == "learned" else None
 
     def forward(self, ids: torch.Tensor) -> torch.Tensor:
         # ids: (batch, time) integers  ->  (batch, time, width) vectors
         length = ids.shape[1]
         if length > self.context:
             raise ValueError(f"sequence of {length} tokens is longer than the context of {self.context}")
+        if self.position is None:
+            return self.token(ids)
         positions = torch.arange(length, device=ids.device)
         return self.token(ids) + self.position(positions)
