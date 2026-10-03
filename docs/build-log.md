@@ -302,3 +302,27 @@ What was built, in order, and why.
   (16 → 19.5 minutes per run, evaluation included). RMSNorm and RoPE are written as several small
   operations, where LayerNorm is a single fused PyTorch kernel. That is a training-speed cost, not an
   inference result.
+
+## 18. Training v2
+
+- **Run.** The v2 shape (RMSNorm, RoPE, SwiGLU, two key/value heads; 14,189,952 parameters) trained with
+  v1's exact recipe: 20,000 steps, 327,680,000 tokens, the same data, seed and schedule. 92 minutes,
+  against v1's 78.5: the modern parts are written as more, smaller operations (section 17).
+- **Quality.** On all 5,683,947 held-out tokens: **loss 1.2719, perplexity 3.568**, against v1's 1.2866 and
+  3.620. That is 1.4% lower perplexity with 10.6% fewer parameters. v2 led at every evaluation, by 0.33
+  at step 500, narrowing to 0.015 at the end. The modern parts mostly make learning faster, and v1
+  recovers part of the gap over a full run.
+- **Speed: v2 generates 2.25× more slowly.**
+
+| row | tok/s (16+224) | ms/token | model MB | peak MB | perplexity |
+|---|---|---|---|---|---|
+| v1 bf16 | 169 | 5.91 | 31.7 | 46 | 3.622 |
+| v2 bf16 | 75 | 13.27 | 28.6 | 42 | 3.568 |
+
+- **Why.** Section 13 showed generation is bound by kernel-launch overhead, not arithmetic. v2 adds many
+  small operations per token: RMSNorm as five element-wise kernels where LayerNorm is one fused kernel,
+  the RoPE rotation of queries and keys in every layer, and the copying of key/value heads for GQA. Each
+  adds launch cost while removing almost no computation. The modern parts are designed to save memory
+  and computation at scale; at 14M parameters, in eager PyTorch, they cost time instead. This is the
+  baseline the next lessons (the KV cache, fused attention, CUDA graphs) work from, and a profile of the
+  v2 step comes first.
