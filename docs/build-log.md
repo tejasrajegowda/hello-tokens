@@ -115,3 +115,16 @@ What was built, in order, and why.
 - **Sanity check at initialisation.** The loss on unseen random targets is ln(4,096) ≈ 8.32, the
   uniform-guess baseline. Using the inputs as targets instead gives 7.59, because a tied model
   initially favours repeating its input; the test uses independent targets.
+
+## 9. The training loop
+
+- **Batches.** Random 257-token windows from the memory-mapped token file; inputs are tokens 0–255
+  and targets tokens 1–256, so each window holds 256 next-token predictions.
+- **Loss.** Cross-entropy over every position: the negative log-probability of the true next token.
+- **Optimizer.** AdamW (β = 0.9, 0.95) with weight decay 0.1 on weight matrices only; biases and
+  LayerNorm parameters are not decayed.
+- **Schedule.** Linear warm-up to the peak learning rate, then cosine decay to 10% of it.
+- **Step.** Forward, loss, backpropagation, gradient-norm clipping at 1.0, update.
+- **Proof of learning.** On one fixed batch the loss falls from about 4.2 to 0.007 in 150 steps.
+- **Faster tests.** Limiting PyTorch to 4 CPU threads for the tiny test models cut the suite from
+  42 s to 7 s; thread coordination outweighed the work.
