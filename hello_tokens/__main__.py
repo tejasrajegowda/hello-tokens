@@ -12,6 +12,7 @@ from hello_tokens.corpus.download import download_all
 from hello_tokens.corpus.encode import encode_file
 from hello_tokens.corpus.sample import read_sample
 from hello_tokens.tokenizer.tokenizer import Tokenizer
+from hello_tokens.training.run import TrainConfig, train
 
 
 def check() -> int:
@@ -44,8 +45,15 @@ def main(argv: list[str] | None = None) -> int:
     prepare.add_argument("--data-dir", type=Path, default=Path("data"), help="where to store it")
     prepare.add_argument("--sample-mb", type=float, default=20, help="text used to train the tokenizer")
     prepare.add_argument("--vocab-size", type=int, default=4096, help="tokenizer vocabulary size")
+    train_cmd = commands.add_parser("train", help="train the model (resumes a run of the same name)")
+    train_cmd.add_argument("--name", default="v1", help="run name: checkpoints/<name>.pt, runs/<name>/")
+    train_cmd.add_argument("--steps", type=int, default=TrainConfig.steps)
+    train_cmd.add_argument("--data-dir", type=Path, default=Path("data"))
     args = parser.parse_args(argv)
 
+    if args.command == "train":
+        train(args.data_dir, Path("."), TrainConfig(name=args.name, steps=args.steps))
+        return 0
     if args.command == "check":
         return check()
     if args.command == "prepare":

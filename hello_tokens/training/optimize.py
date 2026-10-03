@@ -49,11 +49,17 @@ def train_step(
     targets: torch.Tensor,
     learning_rate: float,
     clip: float = 1.0,
+    precision: torch.dtype | None = None,
 ) -> float:
-    """One update: predict, measure the loss, work out the gradients, nudge every weight."""
+    """One update: predict, measure the loss, work out the gradients, nudge every weight.
+
+    precision=torch.bfloat16 runs the forward pass in 16-bit numbers on the GPU (half the memory,
+    faster maths); the weights themselves and their updates stay in full 32-bit precision.
+    """
     for group in optimizer.param_groups:
         group["lr"] = learning_rate
-    loss = next_token_loss(model(inputs), targets)
+    with torch.autocast(inputs.device.type, dtype=precision or torch.float32, enabled=precision is not None):
+        loss = next_token_loss(model(inputs), targets)
     optimizer.zero_grad(set_to_none=True)  # forget the previous step's gradients
     loss.backward()  # backpropagation: the gradient of the loss for every weight
     # If the gradients are unusually large all at once, scale them down so one bad batch
