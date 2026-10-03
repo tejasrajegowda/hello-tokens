@@ -143,3 +143,14 @@ What was built, in order, and why.
 
 - **Samples.** From "Once upon a time" at temperature 0.8, the model writes coherent short stories
   with named characters and an ending, and stops by emitting `<|endoftext|>` itself.
+
+## 11. Sampling and the `write` command
+
+- **Sampling.** Temperature scaling (0 = greedy), top-k, and top-p (nucleus) filtering, then a draw
+  from the remaining distribution with a seedable generator.
+- **Generation.** One token at a time from the last-position logits, cropped to the 256-token context,
+  stopping at `<|endoftext|>`. Each step recomputes the whole prefix; there is no KV cache yet.
+- **`python -m hello_tokens write "<prompt>"`** with temperature 0.8 and top-p 0.95 by default.
+- **Baseline speed: about 152 tokens/s (6.6 ms per token)** on the RTX 4060, flat between 50 and 200
+  new tokens. This is the reference point for v2's inference work, which starts by profiling where a
+  step's time goes.

@@ -12,7 +12,8 @@ from hello_tokens.corpus.download import download_all
 from hello_tokens.corpus.encode import encode_file
 from hello_tokens.corpus.sample import read_sample
 from hello_tokens.tokenizer.tokenizer import Tokenizer
-from hello_tokens.training.run import TrainConfig, train
+from hello_tokens.generation.sampling import generate
+from hello_tokens.training.run import TrainConfig, load_model, train
 
 
 def check() -> int:
@@ -49,8 +50,25 @@ def main(argv: list[str] | None = None) -> int:
     train_cmd.add_argument("--name", default="v1", help="run name: checkpoints/<name>.pt, runs/<name>/")
     train_cmd.add_argument("--steps", type=int, default=TrainConfig.steps)
     train_cmd.add_argument("--data-dir", type=Path, default=Path("data"))
+    write = commands.add_parser("write", help="write a story with a trained model")
+    write.add_argument("prompt", nargs="?", default="Once upon a time")
+    write.add_argument("--name", default="v1", help="which run's checkpoint to use")
+    write.add_argument("--max-tokens", type=int, default=300)
+    write.add_argument("--temperature", type=float, default=0.8)
+    write.add_argument("--top-k", type=int, default=None)
+    write.add_argument("--top-p", type=float, default=0.95)
+    write.add_argument("--seed", type=int, default=None)
+    write.add_argument("--data-dir", type=Path, default=Path("data"))
     args = parser.parse_args(argv)
 
+    if args.command == "write":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        tokenizer = Tokenizer.load(args.data_dir / "tokenizer.bpe")
+        model = load_model(Path("checkpoints") / f"{args.name}.pt", device)
+        new = generate(model, tokenizer.encode(args.prompt), args.max_tokens, args.temperature,
+                       args.top_k, args.top_p, stop_id=tokenizer.end_of_text_id, seed=args.seed)
+        print(args.prompt + tokenizer.decode(new))
+        return 0
     if args.command == "train":
         train(args.data_dir, Path("."), TrainConfig(name=args.name, steps=args.steps))
         return 0
