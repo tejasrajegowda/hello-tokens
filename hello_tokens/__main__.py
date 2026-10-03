@@ -13,6 +13,8 @@ from hello_tokens.corpus.encode import encode_file, load_tokens
 from hello_tokens.evaluation.perplexity import perplexity
 from hello_tokens.corpus.sample import read_sample
 from hello_tokens.tokenizer.tokenizer import Tokenizer
+from hello_tokens.generation.power import opt_out_of_power_throttling
+from hello_tokens.generation.profile_step import profile_steps
 from hello_tokens.generation.sampling import generate
 from hello_tokens.training.run import TrainConfig, load_model, train
 
@@ -63,7 +65,22 @@ def main(argv: list[str] | None = None) -> int:
     eval_cmd = commands.add_parser("eval", help="perplexity of a trained model on every held-out token")
     eval_cmd.add_argument("--name", default="v1", help="which run's checkpoint to use")
     eval_cmd.add_argument("--data-dir", type=Path, default=Path("data"))
+    profile_cmd = commands.add_parser("profile", help="where the time of one generation step goes")
+    profile_cmd.add_argument("--name", default="v1", help="which run's checkpoint to use")
+    profile_cmd.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
     args = parser.parse_args(argv)
+    # Without this, Windows slows a long-running process about 3x after a second (see power.py).
+    opt_out_of_power_throttling()
+
+    if args.command == "profile":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = load_model(Path("checkpoints") / f"{args.name}.pt", device).to(getattr(torch, args.dtype))
+        print(f"{args.name}, {args.dtype}, {device}: one generation step (forward pass + sampling)")
+        print(" context   wall ms  (spread)   GPU busy ms   kernels   GPU idle")
+        for r in profile_steps(model, contexts=[16, 64, 128, 256]):
+            print(f"{r.context:>8}  {r.wall_ms:8.2f}  ({r.spread_ms:5.2f})  {r.gpu_busy_ms:12.2f}"
+                  f"  {r.kernels:8.0f}  {r.gpu_idle_fraction:8.0%}")
+        return 0
 
     if args.command == "eval":
         device = "cuda" if torch.cuda.is_available() else "cpu"

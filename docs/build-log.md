@@ -170,3 +170,34 @@ What was built, in order, and why.
   the 1.286 that training measured on a fixed sample of 50 batches, so the sample was representative.
 - **v1 is complete.** The README now presents the results, sample stories, the loss chart and how each
   component works.
+
+## 13. Profiling one generation step
+
+- **`python -m hello_tokens profile`** times one generation step (a forward pass plus sampling) at
+  contexts of 16, 64, 128 and 256 tokens. The contexts are interleaved over 200 rounds, and the
+  median and interquartile range are reported. The PyTorch profiler then measures GPU kernel time and
+  the number of kernels launched per step.
+- **Windows power throttling.** The first measurements were three times slower than the baseline and
+  noisy. Generation ran at 6 ms per token for about a second, then settled at 17-18 ms: Windows
+  throttles processes it considers background work. A process can ask to be exempt
+  (`SetProcessInformation` with `ProcessPowerThrottling`), which affects only that process. Every
+  command now does so (`hello_tokens/generation/power.py`). Generation then holds a steady
+  **6.0 ms per token (166 tokens/s)**. The earlier 152 tokens/s came from short runs, partly caught
+  before the throttle started.
+- **Result.** With throttling off, a step takes **6.3 ms at every context from 16 to 256 tokens**,
+  in both float32 and bf16. The GPU is busy for only 0.8-2.5 ms of it (float32) or 0.5-1.2 ms (bf16).
+  It sits idle 60-92% of the time, while the CPU launches about 200 kernels per step at roughly 30 µs
+  each.
+
+| context | wall (ms) | GPU busy, fp32 (ms) | GPU busy, bf16 (ms) | kernels |
+|---|---|---|---|---|
+| 16 | 6.3 | 0.83 | 0.51 | ~200 |
+| 64 | 6.3 | 1.11 | 0.58 | ~200 |
+| 128 | 6.4 | 1.58 | 0.72 | ~200 |
+| 256 | 6.3 | 2.52 | 1.15 | ~200 |
+
+- **What it predicts for v2.** Generation is bound by launch overhead, not computation. A KV cache
+  and lower precision reduce work the GPU is mostly not doing, so they should change speed little at
+  this size. Fewer launches (fused attention, CUDA graphs) and fewer sequential steps (speculative
+  decoding) should matter most. If launch overhead were removed entirely, a step would approach its
+  GPU time, roughly 6-10x faster.
