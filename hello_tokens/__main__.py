@@ -66,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     write.add_argument("--top-k", type=int, default=None)
     write.add_argument("--top-p", type=float, default=0.95)
     write.add_argument("--seed", type=int, default=None)
+    write.add_argument("--cache", action="store_true", help="use the KV cache")
     write.add_argument("--data-dir", type=Path, default=Path("data"))
     eval_cmd = commands.add_parser("eval", help="perplexity of a trained model on every held-out token")
     eval_cmd.add_argument("--name", default="v1", help="which run's checkpoint to use")
@@ -76,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     bench = commands.add_parser("bench", help="measure generation speed on the fixed workload; save a row")
     bench.add_argument("--name", default="v1", help="which run's checkpoint to use")
     bench.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
+    bench.add_argument("--cache", action="store_true", help="use the KV cache")
     bench.add_argument("--skip-quality", action="store_true", help="don't compute held-out perplexity")
     bench.add_argument("--table", action="store_true", help="only print the table of saved rows")
     bench.add_argument("--data-dir", type=Path, default=Path("data"))
@@ -118,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         tokenizer = Tokenizer.load(args.data_dir / "tokenizer.bpe")
         model = load_model(Path("checkpoints") / f"{args.name}.pt", device)
         new = generate(model, tokenizer.encode(args.prompt), args.max_tokens, args.temperature,
-                       args.top_k, args.top_p, stop_id=tokenizer.end_of_text_id, seed=args.seed)
+                       args.top_k, args.top_p, stop_id=tokenizer.end_of_text_id, seed=args.seed, cache=args.cache)
         print(args.prompt + tokenizer.decode(new))
         return 0
     if args.command == "train":
@@ -143,10 +145,11 @@ def run_bench(args) -> int:
     if not args.table:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = load_model(Path("checkpoints") / f"{args.name}.pt", device).to(getattr(torch, args.dtype))
-        row = f"{args.name} {'fp32' if args.dtype == 'float32' else 'bf16'}"
+        row = f"{args.name} {'fp32' if args.dtype == 'float32' else 'bf16'}" + (" cache" if args.cache else "")
         print(f"benchmarking {row} on {device}", flush=True)
-        result = run_benchmark(row, Setup(args.name, args.dtype), model,
-                               lambda prompt, n: generate(model, prompt, n, temperature=0, stop_id=None), device)
+        result = run_benchmark(row, Setup(args.name, args.dtype, cache="kv" if args.cache else "none"), model,
+                               lambda prompt, n: generate(model, prompt, n, temperature=0, stop_id=None,
+                                                          cache=args.cache), device)
         if not args.skip_quality:
             tokens = load_tokens(args.data_dir / "tokens" / "valid.bin")
             result.perplexity = perplexity(model, tokens, device=device).perplexity
