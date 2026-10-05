@@ -551,3 +551,18 @@ What was built, in order, and why.
   with int8 weights. On the real v1 and v2 checkpoints both write the same 300-token story. A further
   test compares a replayed graph with the ordinary step on the GPU; it runs, with the speed measurement,
   in the next GPU session.
+
+## 29. The benchmark report
+
+- **No number typed by hand.** `python -m hello_tokens report` (`hello_tokens/benchmark/report.py`) reads
+  every saved row in `benchmarks/results/` and every judge result in `benchmarks/judge/`, and writes
+  `docs/benchmarks.md`. If the README contains the markers `<!-- benchmarks:start -->` and
+  `<!-- benchmarks:end -->`, the same tables replace what is between them. `report --check` exits non-zero
+  when either file is out of date, so a stale table can be caught before a commit.
+- **Order and comparison.** Rows are grouped by model (v1, v2, then others), then listed from the fewest
+  switches to the most. The speed-up column compares each row with the same model in plain bf16, at the
+  long-answer point (16-token prompt, 224 new tokens), so each technique is read against its own model.
+- **Gaps stay visible.** A value that was not measured (a missing point, an ECE from before calibration
+  existed, GPU memory on a CPU run) is shown as "–", never as 0.
+- **Tests.** Ordering, the speed-up baseline, dashes for missing values, the judge table, reading the
+  saved files, and marker replacement that keeps the surrounding text and is unchanged when run twice.
