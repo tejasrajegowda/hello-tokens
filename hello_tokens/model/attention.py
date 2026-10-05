@@ -12,6 +12,7 @@ import math
 import torch
 from torch import nn
 
+from hello_tokens.model.cache import KVCache
 from hello_tokens.model.config import ModelConfig
 from hello_tokens.model.rope import RotaryPositions
 
@@ -19,13 +20,19 @@ from hello_tokens.model.rope import RotaryPositions
 def causal_attention(
     query: torch.Tensor, key: torch.Tensor, value: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Attention for (..., time, head_width) inputs. Returns (output, weights)."""
-    length, head_width = query.shape[-2], query.shape[-1]
-    # How well each query matches each key: (..., time, time). Dividing by sqrt(head_width) keeps
+    """Attention for (..., queries, head_width) against (..., keys, head_width). Returns (output, weights).
+
+    The queries are the *last* tokens of the sequence the keys cover. Without a cache there are as
+    many queries as keys; with a cache, a few new queries meet every stored key.
+    """
+    queries, keys, head_width = query.shape[-2], key.shape[-2], query.shape[-1]
+    # How well each query matches each key: (..., queries, keys). Dividing by sqrt(head_width) keeps
     # the scores at a steady size as head_width grows, so softmax doesn't saturate.
     scores = query @ key.transpose(-2, -1) / math.sqrt(head_width)
-    # Block the future: position i may not look at any position j > i.
-    future = torch.triu(torch.ones(length, length, dtype=torch.bool, device=query.device), diagonal=1)
+    # Block the future. Query i sits at position (keys - queries + i), so it may see keys up to there.
+    # With as many queries as keys this is the usual triangle: position i sees 0..i.
+    future = torch.triu(torch.ones(queries, keys, dtype=torch.bool, device=query.device),
+                        diagonal=keys - queries + 1)
     scores = scores.masked_fill(future, float("-inf"))
     # softmax turns each row of scores into weights that are positive and sum to 1;
     # the -inf scores become exactly 0.
@@ -52,8 +59,9 @@ class CausalSelfAttention(nn.Module):
         # RoPE rotates queries and keys by their position (it has no learned weights).
         self.rope = RotaryPositions(config.head_width, config.context) if config.position == "rope" else None
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, cache: KVCache | None = None, layer: int = 0) -> torch.Tensor:
         batch, length, width = x.shape
+        offset = cache.length if cache is not None else 0  # position of the first new token
         query, key, value = self.qkv(x).split([width, self.kv_width, self.kv_width], dim=-1)
 
         # (batch, time, heads * head_width) -> (batch, heads, time, head_width): one slice per head.
@@ -63,7 +71,11 @@ class CausalSelfAttention(nn.Module):
         query = split_heads(query, self.heads)
         key, value = split_heads(key, self.kv_heads), split_heads(value, self.kv_heads)
         if self.rope is not None:
-            query, key = self.rope(query), self.rope(key)  # values carry content, not position
+            # Values carry content, not position. With a cache, the new tokens sit after the stored ones.
+            query, key = self.rope(query, offset), self.rope(key, offset)
+        if cache is not None:
+            # Keys are stored already rotated, so stored ones never need rotating again.
+            key, value = cache.store(layer, key, value)
         if self.kv_heads != self.heads:
             # GQA: each key/value head serves a group of query heads. Repeating it once per query
             # head in its group lines them up: query heads 0-2 use kv head 0, heads 3-5 use kv head 1.

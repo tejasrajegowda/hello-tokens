@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from hello_tokens.model.attention import CausalSelfAttention
+from hello_tokens.model.cache import KVCache
 from hello_tokens.model.config import ModelConfig
 from hello_tokens.model.norm import make_norm
 
@@ -61,7 +62,7 @@ class Block(nn.Module):
         self.norm2 = make_norm(config)
         self.feed_forward = SwiGLU(config) if config.feed_forward == "swiglu" else FeedForward(config)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.attention(self.norm1(x))
+    def forward(self, x: torch.Tensor, cache: KVCache | None = None, layer: int = 0) -> torch.Tensor:
+        x = x + self.attention(self.norm1(x), cache, layer)
         x = x + self.feed_forward(self.norm2(x))
         return x

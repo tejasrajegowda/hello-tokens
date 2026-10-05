@@ -349,3 +349,27 @@ What was built, in order, and why.
 - **Tests.** The streamed text equals `generate`'s output for the same seed, for both models. The
   reported odds are sorted, positive and at most five. Invalid settings and over-long prompts get 422.
   The busy and stale rules hold, and a split character is joined correctly.
+
+## 20. The KV cache
+
+- **What it removes.** Without a cache, writing each token re-reads the whole text so far through
+  every layer. A token's key and value never change once computed, because a token cannot see later
+  tokens, so they can be stored and reused: each step then runs the model on one new token.
+- **`KVCache`** (`hello_tokens/model/cache.py`) allocates one key and one value buffer per layer, at
+  full context size, plus a length pointer. Rolling back is moving the pointer, which speculative
+  decoding will need, and fixed buffers are what CUDA graphs need. With GQA only the two key/value
+  heads are stored: 4 KB per token in bf16 for v2, against 12 KB for v1, as tested.
+- **One general mask.** Attention now takes a few new queries against all stored keys: query *i*
+  may see keys up to position `keys − queries + i`. With as many queries as keys this is the usual
+  triangle, so the uncached path is unchanged. RoPE rotates new keys and queries at their true
+  positions (the offset), and keys are stored already rotated.
+- **Past the context.** A full cache cannot simply slide. Every stored key in layers 2–8 was computed
+  while the oldest tokens were still visible, so dropping one would leave stale keys behind. The
+  generator therefore restarts from the last three quarters of the context, read in one pass, then
+  continues token by token. Beyond 256 tokens the cached text can therefore differ from the uncached
+  text, which always reads exactly the last 256.
+- **Tests (fp32, CPU, v1 and v2 shapes).** One token at a time with the cache matches re-reading
+  everything, at every position. A whole prompt read into the cache gives the usual outputs. A
+  rollback forgets exactly the dropped tokens. Greedy writing with the cache is identical within the
+  context, and past it matches an uncached reference reading the same windows. The cache refuses to
+  overflow. The speed measurement follows in the next GPU session.

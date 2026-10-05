@@ -61,11 +61,16 @@ def generate_stream(
     stop_id: int | None = None,
     generator: torch.Generator | None = None,
     details: bool = False,
+    cache: bool = False,
 ) -> Iterator[Step]:
     """Yield new tokens one at a time until stop_id (not yielded) or max_new_tokens.
 
-    Each step re-reads the whole text so far (the last `context` tokens) to predict one more token.
-    That repeated work is exactly what a KV cache removes in v2.
+    Without a cache, each step re-reads the whole text so far (the last `context` tokens) to predict
+    one more token. With a cache, the prompt is read once and each step feeds only the newest token.
+    When the cache is full, it starts again from the last three quarters of the context, read in one
+    pass, then continues one token at a time. (A cache can't simply slide: each stored key was computed
+    while the oldest tokens were still visible.) So past `context` tokens the cached text can differ
+    from the uncached text, which always reads exactly the last `context` tokens.
 
     With details, each step also reports the model's own probabilities: a plain softmax of its
     scores, before temperature or top-p, so they show how sure the model itself was. They are
@@ -73,16 +78,26 @@ def generate_stream(
     """
     model.eval()
     device = next(model.parameters()).device
+    context = model.config.context
     tokens = list(ids)
+    kv = model.new_cache() if cache else None
+    pending = tokens[-context:]  # with a cache: the tokens it hasn't read yet
     for _ in range(max_new_tokens):
         started = time.perf_counter()
-        window = torch.tensor([tokens[-model.config.context :]], device=device)
-        logits = model(window)[0, -1]  # scores for the token after the last one
+        if kv is None:
+            window = torch.tensor([tokens[-context:]], device=device)
+            logits = model(window)[0, -1]  # scores for the token after the last one
+        else:
+            if kv.length + len(pending) > context:  # full: start again from the last 3/4
+                kv.rollback(0)
+                pending = tokens[-(context * 3 // 4) :]
+            logits = model(torch.tensor([pending], device=device), kv)[0, -1]
         next_id = sample_next(logits, temperature, top_k, top_p, generator)  # int(): waits for the GPU
         seconds = time.perf_counter() - started
         if next_id == stop_id:
             return
         tokens.append(next_id)
+        pending = [next_id]
         if not details:
             yield Step(next_id, seconds)
             continue
@@ -101,11 +116,13 @@ def generate(
     top_p: float | None = None,
     stop_id: int | None = None,
     seed: int | None = None,
+    cache: bool = False,
 ) -> list[int]:
     """Extend ids until stop_id or max_new_tokens. Returns only the new ids."""
     generator = None
     if seed is not None:
         device = next(model.parameters()).device
         generator = torch.Generator(device=device).manual_seed(seed)
-    steps = generate_stream(model, ids, max_new_tokens, temperature, top_k, top_p, stop_id, generator)
+    steps = generate_stream(model, ids, max_new_tokens, temperature, top_k, top_p, stop_id, generator,
+                            cache=cache)
     return [step.id for step in steps]

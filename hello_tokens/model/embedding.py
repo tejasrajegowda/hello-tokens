@@ -21,12 +21,13 @@ class Embedding(nn.Module):
         # With RoPE, position is applied inside attention instead, so there is no position table.
         self.position = nn.Embedding(config.context, config.width) if config.position == "learned" else None
 
-    def forward(self, ids: torch.Tensor) -> torch.Tensor:
-        # ids: (batch, time) integers  ->  (batch, time, width) vectors
+    def forward(self, ids: torch.Tensor, offset: int = 0) -> torch.Tensor:
+        # ids: (batch, time) integers  ->  (batch, time, width) vectors. `offset` is the position of
+        # the first id (non-zero when earlier tokens are already in a KV cache).
         length = ids.shape[1]
-        if length > self.context:
-            raise ValueError(f"sequence of {length} tokens is longer than the context of {self.context}")
+        if offset + length > self.context:
+            raise ValueError(f"sequence of {offset + length} tokens is longer than the context of {self.context}")
         if self.position is None:
             return self.token(ids)
-        positions = torch.arange(length, device=ids.device)
+        positions = torch.arange(offset, offset + length, device=ids.device)
         return self.token(ids) + self.position(positions)

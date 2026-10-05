@@ -6,6 +6,7 @@ import torch
 from torch import nn
 
 from hello_tokens.model.block import Block
+from hello_tokens.model.cache import KVCache
 from hello_tokens.model.config import ModelConfig
 from hello_tokens.model.norm import make_norm
 from hello_tokens.model.embedding import Embedding
@@ -42,12 +43,20 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, ids: torch.Tensor) -> torch.Tensor:
-        # ids: (batch, time)  ->  logits: (batch, time, vocab_size)
-        x = self.embedding(ids)
-        for block in self.blocks:
-            x = block(x)
+    def forward(self, ids: torch.Tensor, cache: KVCache | None = None) -> torch.Tensor:
+        # ids: (batch, time)  ->  logits: (batch, time, vocab_size). With a cache, ids are only the new
+        # tokens: everything before them is read from the cache, and they are added to it.
+        x = self.embedding(ids, cache.length if cache is not None else 0)
+        for layer, block in enumerate(self.blocks):
+            x = block(x, cache, layer)
+        if cache is not None:
+            cache.advance(ids.shape[1])
         return self.output(self.final_norm(x))
+
+    def new_cache(self, batch: int = 1) -> KVCache:
+        """An empty KV cache on this model's device, in its precision."""
+        weight = self.output.weight
+        return KVCache(self.config, batch, weight.device, weight.dtype)
 
     def parameter_count(self) -> int:
         # .parameters() lists the tied table once, so it is counted once.
