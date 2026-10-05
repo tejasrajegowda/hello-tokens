@@ -580,3 +580,10 @@ What was built, in order, and why.
 - **Quality where it can change.** Perplexity and ECE are measured for rows that change the computed
   numbers (precision, attention kernel, quantization). The cache, graphs and speculative decoding produce
   the same distribution by construction, so those rows skip the held-out pass, and the report says so.
+- **A machine check before measuring.** A first full run showed every row without graphs at half its
+  usual speed: one v1 step took 12.1 ms instead of 6.3 ms, with the same 189 GPU operations and the same
+  GPU busy time, so the CPU side of the machine was running slower (a power or performance profile).
+  Rows measured in that state are not comparable with earlier rows, and they inflate the gain from CUDA
+  graphs, which remove exactly that CPU-side work. The script therefore times one v1 step before any
+  benchmark and refuses to run above `--max-step-ms` (8 ms by default). That run's speed rows were set
+  aside. The script also gains the missing `v1 fp32` row and `--redo PREFIX` to re-run finished steps.

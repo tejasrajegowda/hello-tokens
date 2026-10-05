@@ -2,6 +2,7 @@
 
     uv run python scripts/gpu_benchmarks.py            # run (or resume) the batch
     uv run python scripts/gpu_benchmarks.py --dry-run  # only list the steps and which are done
+    uv run python scripts/gpu_benchmarks.py --redo bench   # run the steps starting with "bench" again
 
 Each step is one `python -m hello_tokens` command (or the GPU-only tests). A finished step is recorded in
 runs/gpu-benchmarks-done.txt and never runs again, so an interrupted batch resumes where it stopped. The
@@ -10,6 +11,11 @@ first failure stops the batch. Every line of output also goes to runs/gpu-benchm
 Quality (perplexity and ECE) is measured for rows that change the numbers the model computes: the
 precision, the attention kernel and quantization. The KV cache, CUDA graphs and speculative decoding give
 the same distribution as their model's plain row (exact in fp32, as the tests show), so those rows skip it.
+
+Speed rows are only comparable when the machine is in the same state. A laptop in a quiet or power-saving
+profile can run the Python side of each step at half speed, which slows every row without graphs and
+inflates every speed-up from graphs. So before anything is measured, one v1 step is timed and the batch
+refuses to run if it is slower than `--max-step-ms` (the normal time on this machine is about 6 ms).
 """
 
 import argparse
@@ -33,6 +39,7 @@ def steps() -> list[tuple[str, list[str]]]:
         ("train draft", ["train", "--name", "draft", "--model", "draft", "--steps", "20000"]),
         ("eval draft", ["eval", "--name", "draft"]),
     ]
+    plan.append(("bench v1 fp32", ["bench", "--name", "v1", "--dtype", "float32"]))
     for model in ("v1", "v2"):
         bench = ["bench", "--name", model, *BF16]
         plan += [
@@ -62,6 +69,20 @@ def done_steps() -> set[str]:
     return set(DONE.read_text(encoding="utf-8").splitlines()) if DONE.exists() else set()
 
 
+def machine_step_ms() -> float:
+    """Median wall time of one v1 bf16 generation step at context 16: the machine's current speed."""
+    import torch
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # run as a script: find the package
+    from hello_tokens.generation.power import opt_out_of_power_throttling
+    from hello_tokens.generation.profile_step import profile_steps
+    from hello_tokens.training.run import load_model
+
+    opt_out_of_power_throttling()
+    model = load_model(Path("checkpoints") / "v1.pt", "cuda").to(torch.bfloat16)
+    return profile_steps(model, contexts=[16])[0].wall_ms
+
+
 def run(name: str, command: list[str], log) -> bool:
     if command[0] == "pytest":
         argv = [sys.executable, "-m", *command]
@@ -87,8 +108,13 @@ def run(name: str, command: list[str], log) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true", help="list the steps and which are done")
+    parser.add_argument("--redo", metavar="PREFIX", help="run the done steps whose names start with PREFIX again")
+    parser.add_argument("--max-step-ms", type=float, default=8.0,
+                        help="refuse to measure if one v1 step is slower than this (machine not at full speed)")
     args = parser.parse_args()
     finished = done_steps()
+    if args.redo:
+        finished = {name for name in finished if not name.startswith(args.redo)}
     plan = steps()
     if args.dry_run:
         for name, command in plan:
@@ -100,6 +126,13 @@ def main() -> int:
     if not torch.cuda.is_available():
         print("no CUDA GPU visible: this batch measures GPU speed, so it does not run on a CPU")
         return 1
+    if any(name.startswith("bench") and name not in finished for name, _ in plan):
+        step_ms = machine_step_ms()
+        print(f"machine check: one v1 bf16 step takes {step_ms:.1f} ms (limit {args.max_step_ms:.1f} ms)")
+        if step_ms > args.max_step_ms:
+            print("the machine is running slower than normal (power or performance profile?): speed rows "
+                  "measured now would not be comparable. Nothing was run.")
+            return 1
     RUNS.mkdir(exist_ok=True)
     with LOG.open("a", encoding="utf-8") as log:
         for name, command in plan:
