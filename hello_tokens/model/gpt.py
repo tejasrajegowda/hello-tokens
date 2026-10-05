@@ -53,6 +53,12 @@ class GPT(nn.Module):
             cache.advance(ids.shape[1])
         return self.output(self.final_norm(x))
 
+    def use_fused_attention(self, on: bool = True) -> "GPT":
+        """Switch every layer to PyTorch's fused attention kernel (or back to ours)."""
+        for block in self.blocks:
+            block.attention.fused = on
+        return self
+
     def new_cache(self, batch: int = 1) -> KVCache:
         """An empty KV cache on this model's device, in its precision."""
         weight = self.output.weight

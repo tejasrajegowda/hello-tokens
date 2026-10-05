@@ -373,3 +373,19 @@ What was built, in order, and why.
   rollback forgets exactly the dropped tokens. Greedy writing with the cache is identical within the
   context, and past it matches an uncached reference reading the same windows. The cache refuses to
   overflow. The speed measurement follows in the next GPU session.
+
+## 21. Fused attention
+
+- **A runtime switch.** `GPT.use_fused_attention()` makes every layer compute attention with PyTorch's
+  `scaled_dot_product_attention`: one kernel instead of the four written out by hand (scores, mask,
+  softmax, weighted sum), and it never stores the full score table. The weights are the same, so it is
+  not part of the model's shape. `bench --fused` measures it.
+- **Masks.** The kernel's built-in causal mask lines up with the first key, which is correct only when
+  there are as many queries as keys. So a single new query against the cache gets no mask (it may see
+  every stored key), and a block of new queries against a longer cache gets an explicit bottom-right
+  mask. A check confirms the built-in mask gives different, wrong results in that case. With GQA the
+  kernel shares each key/value head across its group itself (`enable_gqa`), without copying.
+- **Tests (fp32, CPU, v1 and v2 shapes).** It matches the hand-written attention on a whole prompt,
+  token by token with the cache, and on a block of four new tokens over ten stored ones, the
+  verification step of speculative decoding. It is causal, and the switch goes both ways. The speed
+  measurement follows in the next GPU session.

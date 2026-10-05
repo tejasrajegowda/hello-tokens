@@ -39,6 +39,7 @@ class Setup:
     model: str  # checkpoint name, e.g. "v1"
     dtype: str  # "float32" or "bfloat16"
     cache: str = "none"
+    attention: str = "ours"  # or "fused" (PyTorch's scaled_dot_product_attention)
     graphs: str = "none"  # CUDA graphs or torch.compile
     quantization: str = "none"
     decoding: str = "normal"  # or "speculative"

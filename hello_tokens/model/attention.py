@@ -10,6 +10,7 @@ without reading it.
 import math
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 from hello_tokens.model.cache import KVCache
@@ -40,6 +41,26 @@ def causal_attention(
     return weights @ value, weights
 
 
+def fused_attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, gqa: bool) -> torch.Tensor:
+    """The same attention, done by PyTorch's fused kernel (scaled_dot_product_attention).
+
+    One kernel instead of several (scores, mask, softmax, weighted sum), and it never stores the full
+    score table. Its built-in causal mask lines up with the *first* key, which is only right when there
+    are as many queries as keys, so the other cases pass their own mask:
+    - one new query (decoding with a cache): it may see every key, so no mask at all;
+    - a few new queries against a longer cache (checking drafted tokens): the usual bottom-right mask.
+    With GQA the kernel shares each key/value head across its group itself (enable_gqa), with no copies.
+    """
+    queries, keys = query.shape[-2], key.shape[-2]
+    if queries == keys:
+        return F.scaled_dot_product_attention(query, key, value, is_causal=True, enable_gqa=gqa)
+    mask = None
+    if queries > 1:  # True = may attend
+        mask = ~torch.triu(torch.ones(queries, keys, dtype=torch.bool, device=query.device),
+                           diagonal=keys - queries + 1)
+    return F.scaled_dot_product_attention(query, key, value, attn_mask=mask, enable_gqa=gqa)
+
+
 class CausalSelfAttention(nn.Module):
     """Several attention heads side by side, each free to look for something different."""
 
@@ -58,6 +79,9 @@ class CausalSelfAttention(nn.Module):
         self.out = nn.Linear(config.width, config.width)
         # RoPE rotates queries and keys by their position (it has no learned weights).
         self.rope = RotaryPositions(config.head_width, config.context) if config.position == "rope" else None
+        # Which implementation computes attention: ours (False) or PyTorch's fused kernel (True). Same
+        # weights, same results; a runtime choice, not part of the model's shape.
+        self.fused = False
 
     def forward(self, x: torch.Tensor, cache: KVCache | None = None, layer: int = 0) -> torch.Tensor:
         batch, length, width = x.shape
@@ -76,12 +100,15 @@ class CausalSelfAttention(nn.Module):
         if cache is not None:
             # Keys are stored already rotated, so stored ones never need rotating again.
             key, value = cache.store(layer, key, value)
-        if self.kv_heads != self.heads:
-            # GQA: each key/value head serves a group of query heads. Repeating it once per query
-            # head in its group lines them up: query heads 0-2 use kv head 0, heads 3-5 use kv head 1.
-            group = self.heads // self.kv_heads
-            key, value = key.repeat_interleave(group, dim=1), value.repeat_interleave(group, dim=1)
-        output, _ = causal_attention(query, key, value)
+        if self.fused:
+            output = fused_attention(query, key, value, gqa=self.kv_heads != self.heads)
+        else:
+            if self.kv_heads != self.heads:
+                # GQA: each key/value head serves a group of query heads. Repeating it once per query
+                # head in its group lines them up: query heads 0-2 use kv head 0, heads 3-5 kv head 1.
+                group = self.heads // self.kv_heads
+                key, value = key.repeat_interleave(group, dim=1), value.repeat_interleave(group, dim=1)
+            output, _ = causal_attention(query, key, value)
         # Put the heads back side by side: (batch, heads, time, head_width) -> (batch, time, width).
         output = output.transpose(1, 2).reshape(batch, length, width)
         return self.out(output)

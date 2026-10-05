@@ -78,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     bench.add_argument("--name", default="v1", help="which run's checkpoint to use")
     bench.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
     bench.add_argument("--cache", action="store_true", help="use the KV cache")
+    bench.add_argument("--fused", action="store_true", help="use PyTorch's fused attention kernel")
     bench.add_argument("--skip-quality", action="store_true", help="don't compute held-out perplexity")
     bench.add_argument("--table", action="store_true", help="only print the table of saved rows")
     bench.add_argument("--data-dir", type=Path, default=Path("data"))
@@ -145,11 +146,15 @@ def run_bench(args) -> int:
     if not args.table:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = load_model(Path("checkpoints") / f"{args.name}.pt", device).to(getattr(torch, args.dtype))
-        row = f"{args.name} {'fp32' if args.dtype == 'float32' else 'bf16'}" + (" cache" if args.cache else "")
+        model.use_fused_attention(args.fused)
+        setup = Setup(args.name, args.dtype, cache="kv" if args.cache else "none",
+                      attention="fused" if args.fused else "ours")
+        # The row's name lists what differs from the plain model, e.g. "v2 bf16 cache fused".
+        row = " ".join([args.name, "fp32" if args.dtype == "float32" else "bf16"]
+                       + ["cache"] * args.cache + ["fused"] * args.fused)
         print(f"benchmarking {row} on {device}", flush=True)
-        result = run_benchmark(row, Setup(args.name, args.dtype, cache="kv" if args.cache else "none"), model,
-                               lambda prompt, n: generate(model, prompt, n, temperature=0, stop_id=None,
-                                                          cache=args.cache), device)
+        result = run_benchmark(row, setup, model, lambda prompt, n: generate(
+            model, prompt, n, temperature=0, stop_id=None, cache=args.cache), device)
         if not args.skip_quality:
             tokens = load_tokens(args.data_dir / "tokens" / "valid.bin")
             result.perplexity = perplexity(model, tokens, device=device).perplexity
