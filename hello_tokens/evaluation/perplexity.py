@@ -15,6 +15,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from hello_tokens.evaluation.calibration import CalibrationBins
 from hello_tokens.model.gpt import GPT
 
 
@@ -27,9 +28,13 @@ class Score:
 
 @torch.no_grad()
 def perplexity(
-    model: GPT, tokens: np.ndarray, batch_size: int = 64, device: str = "cpu", precision=None
+    model: GPT, tokens: np.ndarray, batch_size: int = 64, device: str = "cpu", precision=None,
+    calibration: CalibrationBins | None = None,
 ) -> Score:
-    """Score every next-token prediction in `tokens` once. Returns the average loss and perplexity."""
+    """Score every next-token prediction in `tokens` once. Returns the average loss and perplexity.
+
+    If `calibration` is given, every prediction is also added to it, in the same pass.
+    """
     model.eval()
     context = model.config.context
     total_loss = 0.0
@@ -47,6 +52,8 @@ def perplexity(
             logits.float().reshape(-1, logits.shape[-1]), targets.reshape(-1), reduction="sum"
         ).item()
         total_tokens += targets.numel()
+        if calibration is not None:
+            calibration.add_logits(logits, targets)
 
     # Window i reads tokens[i*context : (i+1)*context] and predicts the tokens one place later.
     full_windows = (len(tokens) - 1) // context

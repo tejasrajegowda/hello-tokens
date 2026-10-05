@@ -444,3 +444,32 @@ What was built, in order, and why.
 - **First quality reading** (v2, fp32, first 50,000 held-out tokens, CPU): perplexity 3.5983 at full
   precision, **3.5985 with int8** (+0.01%) and **3.6599 with int4** (+1.7%). The full held-out
   evaluation and the speed rows (`eval --quantize`, `bench --quantize`) follow in the next GPU session.
+
+## 25. Calibration
+
+- **What it measures** (`hello_tokens/evaluation/calibration.py`). For every held-out prediction it
+  records the model's confidence (the probability of its top choice) and whether that choice was the
+  true next token. Predictions are sorted into 15 equal-width confidence bins. Expected calibration
+  error (ECE) is the count-weighted average gap between each bin's confidence and its accuracy: 0 is
+  perfect.
+- **One pass.** It rides along with perplexity: `perplexity(..., calibration=bins)` adds every batch's
+  predictions to running per-bin sums, so millions of predictions cost no extra model runs and no
+  extra memory. `eval` now prints top-1 accuracy and ECE and saves a reliability diagram, and `bench`
+  rows carry ECE beside perplexity.
+- **Tests.** A synthetic predictor that is right with probability equal to its confidence scores below
+  0.005. Always 90% sure but right 6 times in 10 gives exactly 0.3, and a two-bin case worked by hand
+  gives 0.3. Every prediction is counted once, and top-1 accuracy matches a brute-force count.
+- **First reading** (CPU, first 50,000 held-out tokens):
+
+| model | perplexity | top-1 accuracy | ECE |
+|---|---|---|---|
+| v1 | 3.657 | 65.15% | 0.0115 |
+| v2 | 3.598 | 65.38% | 0.0104 |
+| v2 int8 | 3.599 | 65.40% | 0.0109 |
+| v2 int4 | 3.660 | 64.96% | 0.0115 |
+
+- **Reading.** Every model is well calibrated, slightly overconfident (confidence exceeds accuracy by
+  about one point on average). Pre-trained language models are known to be well calibrated (the GPT-4
+  report, Figure 8), and this holds at 14M parameters. Quantization barely changes it: int4 loses 0.4
+  points of accuracy and adds 0.001 to ECE. The full held-out evaluation follows in the next GPU
+  session.

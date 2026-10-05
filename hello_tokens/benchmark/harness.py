@@ -64,6 +64,7 @@ class Result:
     model_mb: float
     peak_memory_mb: float  # 0 on the CPU
     perplexity: float | None = None
+    ece: float | None = None  # expected calibration error on the same held-out text
     machine: dict = field(default_factory=dict)
     measured_at: str = ""  # ISO date and time; rows are listed in this order
 
@@ -153,7 +154,7 @@ def format_table(results: list[dict]) -> str:
     """One line per row: tokens/s at each point, first-token and per-token time at the long answer."""
     names = [f"{p}+{n}" for p, n in POINTS]
     header = f"{'row':<20}" + "".join(f"{'tok/s ' + n:>14}" for n in names)
-    header += f"{'first ms':>10}{'ms/token':>10}{'MB':>8}{'peak MB':>9}{'ppl':>7}"
+    header += f"{'first ms':>10}{'ms/token':>10}{'MB':>8}{'peak MB':>9}{'ppl':>7}{'ECE':>8}"
     lines = [header]
     for r in results:
         points = {(p["prompt_tokens"], p["new_tokens"]): p for p in r["points"]}
@@ -161,7 +162,8 @@ def format_table(results: list[dict]) -> str:
         line = f"{r['row']:<20}" + "".join(
             f"{points[pt]['tokens_per_s']:>14.0f}" if pt in points else f"{'-':>14}" for pt in POINTS)
         ppl = f"{r['perplexity']:.3f}" if r.get("perplexity") else "-"
+        ece = f"{r['ece']:.4f}" if r.get("ece") is not None else "-"
         line += (f"{long['first_token_ms']:>10.2f}{long['per_token_ms']:>10.2f}"
-                 f"{r['model_mb']:>8.1f}{r['peak_memory_mb']:>9.0f}{ppl:>7}")
+                 f"{r['model_mb']:>8.1f}{r['peak_memory_mb']:>9.0f}{ppl:>7}{ece:>8}")
         lines.append(line)
     return "\n".join(lines)

@@ -11,6 +11,7 @@ import torch
 from hello_tokens.benchmark.harness import Setup, format_table, load_results, run_benchmark, save_result
 from hello_tokens.corpus.download import download_all
 from hello_tokens.corpus.encode import encode_file, load_tokens
+from hello_tokens.evaluation.calibration import CalibrationBins, save_reliability_diagram
 from hello_tokens.evaluation.perplexity import perplexity
 from hello_tokens.corpus.sample import read_sample
 from hello_tokens.model.config import MODELS
@@ -117,11 +118,20 @@ def main(argv: list[str] | None = None) -> int:
             quantize_model(model, args.quantize)
         started = time.perf_counter()
         # Scored in float32, not bf16, so the reported number carries no rounding from lower precision.
-        score = perplexity(model, load_tokens(args.data_dir / "tokens" / "valid.bin"), device=device)
-        print(f"{args.name} on held-out text: {score.tokens:,} tokens scored in "
+        bins = CalibrationBins()
+        score = perplexity(model, load_tokens(args.data_dir / "tokens" / "valid.bin"), device=device,
+                           calibration=bins)
+        calibration = bins.result()
+        label = args.name + (f" int{args.quantize}" if args.quantize else "")
+        print(f"{label} on held-out text: {score.tokens:,} tokens scored in "
               f"{time.perf_counter() - started:.0f} s")
         print(f"loss        {score.loss:.4f}")
         print(f"perplexity  {score.perplexity:.3f}")
+        print(f"accuracy    {calibration.accuracy:.1%} (top choice = the true next token)")
+        print(f"ECE         {calibration.ece:.4f} (0 = perfectly calibrated)")
+        diagram = Path("runs") / args.name / f"reliability{f'-int{args.quantize}' if args.quantize else ''}.png"
+        save_reliability_diagram(calibration, diagram, label)
+        print(f"diagram     {diagram}")
         return 0
 
     if args.command == "write":
@@ -179,7 +189,9 @@ def run_bench(args) -> int:
             print(f"draft tokens accepted: {stats['accepted'] / stats['drafted']:.1%}")
         if not args.skip_quality:
             tokens = load_tokens(args.data_dir / "tokens" / "valid.bin")
-            result.perplexity = perplexity(model, tokens, device=device).perplexity
+            bins = CalibrationBins()
+            result.perplexity = perplexity(model, tokens, device=device, calibration=bins).perplexity
+            result.ece = bins.result().ece
         print(f"saved {save_result(result, RESULTS)}")
     print(format_table(load_results(RESULTS)))
     return 0
