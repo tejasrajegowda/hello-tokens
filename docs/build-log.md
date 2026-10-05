@@ -542,8 +542,8 @@ What was built, in order, and why.
 - **`OneTokenStep`** (`hello_tokens/generation/graphs.py`) warms the step up on a side stream, records it,
   and replays it. One recording is kept per model, precision and attention kernel, and reused across
   stories by emptying its cache (moving the pointer to 0). Prompts, and the re-read when the cache is full,
-  still run normally. `write --graphs` and `bench --graphs` turn it on; on a CPU the same fixed-shape
-  step runs without a graph.
+  still run normally. `write --graphs`, `bench --graphs` and a playground switch turn it on; on a CPU
+  the same fixed-shape step runs without a graph.
 - **Tests (fp32, CPU, v1 and v2 shapes, both attention kernels).** The fixed-shape step equals the
   ordinary cached step at every position up to the end of the context, and leaves identical keys and
   values in the cache. Stale entries left beyond the pointer by a rollback are ignored. Writing with the

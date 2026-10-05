@@ -104,10 +104,11 @@ def test_the_page_and_the_model_list(app):
     assert [m["name"] for m in client.get("/models").json()] == ["v1", "v2"]
 
 
-def test_the_cache_and_fused_switches_write_the_same_story(app):
+def test_the_cache_fused_and_graphs_switches_write_the_same_story(app):
     client = TestClient(app)
     texts = []
-    for switches in ({}, {"cache": True}, {"fused": True}, {"cache": True, "fused": True}):
+    for switches in ({}, {"cache": True}, {"fused": True}, {"cache": True, "fused": True},
+                     {"graphs": True}, {"graphs": True, "fused": True}):
         events = stream(client, prompt="the cat", max_tokens=10, seed=4, **switches)
         texts.append("".join(d["text"] for kind, d in events if kind in ("token", "done") and d["model"] == "v2"))
     assert len(set(texts)) == 1  # fp32 on the CPU: identical text whatever the switches

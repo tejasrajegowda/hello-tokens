@@ -75,6 +75,7 @@
       <label>seed <input id="seed" type="number" min="0" placeholder="random"><button class="ghost" id="clearSeed" type="button">random</button></label>
       <label title="Remember earlier work instead of re-reading the story each word: same text"><input id="cache" type="checkbox"> KV cache</label>
       <label title="PyTorch's one-step attention kernel: same text"><input id="fused" type="checkbox"> fused attention</label>
+      <label title="Record each one-word step once and replay it (GPU); uses the KV cache: same text"><input id="graphs" type="checkbox"> CUDA graphs</label>
       <button id="write" type="button">Write</button>
     </div>
     <div class="status" id="status" role="status"></div>
@@ -185,7 +186,8 @@ async function write() {
   const button = $("write"), status = $("status");
   const body = { prompt: $("prompt").value, temperature: +$("temperature").value, top_p: +$("top_p").value,
                  max_tokens: +$("max_tokens").value, seed: $("seed").value === "" ? null : +$("seed").value,
-                 cache: $("cache").checked, fused: $("fused").checked };
+                 cache: $("cache").checked, fused: $("fused").checked,
+                 graphs: $("graphs").checked };
   button.disabled = true; status.className = "status"; status.textContent = "writing…";
   reset(body.prompt);
   try {

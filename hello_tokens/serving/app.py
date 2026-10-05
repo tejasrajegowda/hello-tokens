@@ -48,6 +48,7 @@ class WriteRequest(BaseModel):
     seed: int | None = Field(None, ge=0, le=2**31 - 1)
     cache: bool = False  # use the KV cache (same text, less work per token)
     fused: bool = False  # use PyTorch's fused attention kernel (same text)
+    graphs: bool = False  # replay each one-token step as a CUDA graph; implies the cache (same text)
 
 
 class JudgeRequest(BaseModel):
@@ -146,7 +147,7 @@ def create_app(models: dict[str, Entry], tokenizer: Tokenizer, device: str) -> F
                     generator = torch.Generator(device=device).manual_seed(seed)
                     streams[name] = generate_stream(entry.model, ids, request.max_tokens, request.temperature,
                                                     None, request.top_p, end_id, generator, details=True,
-                                                    cache=request.cache)
+                                                    cache=request.cache, graphs=request.graphs)
                     texts[name], counts[name] = TextStream(tokenizer), 0
                 active = list(models)
                 while active:
