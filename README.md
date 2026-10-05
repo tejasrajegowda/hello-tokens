@@ -10,8 +10,10 @@ engineering: making generation fast, and measuring what each optimization costs 
 
 ## Status
 
-**v1 is complete.** v2 (modern components, KV cache, quantization, speculative decoding) is next.
-Each step is recorded in [docs/build-log.md](docs/build-log.md).
+**v1 is complete.** v2's components (modern architecture, KV cache, fused attention, CUDA graphs,
+quantization, speculative decoding, calibration, judge mode, local serving) are built and tested; the
+remaining step is measuring them all on the GPU. Each step is recorded in
+[docs/build-log.md](docs/build-log.md).
 
 ## Results (v1)
 
@@ -53,6 +55,35 @@ ends because the model emitted its own end-of-text token. Reproduce with
 **Limitations.** The model knows only the simple vocabulary and plots of its training stories, and at
 this size it still makes logical slips, such as calling a bug harmless one sentence before it bites.
 
+## Results (v2)
+
+The tables below are generated from the saved measurements in `benchmarks/` by
+`python -m hello_tokens report`; they are never edited by hand. Rows not yet measured on the GPU are
+absent rather than estimated.
+
+<!-- benchmarks:start -->
+### Speed and quality
+
+Greedy writing, no stop token, median of 5 runs; tok/s at (prompt + new tokens). Speed-up, first token and ms / token are at 16+224. Speed-up is against the same model in plain bf16. Perplexity and ECE are on the held-out text. Rows that only add the KV cache, CUDA graphs or speculative decoding produce their model's distribution unchanged (exact in fp32, as tested), so their quality is not measured again.
+
+| Row | tok/s 16+64 | tok/s 16+224 | tok/s 128+128 | Speed-up | First token ms | ms / token | Size MB | Peak MB | Perplexity | ECE |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `v1 fp32` | 168 | 168 | 166 | 0.99× | 6.45 | 5.95 | 63.5 | 83 | 3.620 | – |
+| `v1 bf16` | 168 | 169 | 169 | 1.00× | 6.27 | 5.91 | 31.7 | 46 | 3.622 | – |
+| `v2 bf16` | 74 | 75 | 78 | 1.00× | 12.11 | 13.27 | 28.6 | 42 | 3.568 | – |
+
+Measured on: NVIDIA GeForce RTX 4060 Laptop GPU, PyTorch 2.14.0+cu130, Python 3.14.3.
+
+### Judge mode
+
+Four-option next-sentence questions from held-out stories; the threshold is chosen on one half and reported on the other.
+
+| Model | Questions | Accuracy (all) | Judge ECE raw → scaled | Threshold | Answers | Accuracy when answering | Device |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `v1` | 2,000 | 71.6% | 0.205 → 0.030 | 69.7% | 50% | 88.2% | cpu |
+| `v2` | 2,000 | 72.0% | 0.220 → 0.057 | 76.7% | 32% | 92.2% | cpu |
+<!-- benchmarks:end -->
+
 ## How it works
 
 Every component below is implemented in this repository and covered by tests.
@@ -88,6 +119,51 @@ file: back-to-back windows score every token exactly once, losses are summed in 
 result is computed without mixed precision. Tests check it against a hand computation and against a
 model that knows nothing, which must score exactly the vocabulary size.
 
+## How v2 works
+
+Each v2 change is a switch, and the v1 checkpoint still loads and runs unchanged (a golden fixture saved
+from the v1 code is reproduced within 1e-6).
+
+**Modern components** (`hello_tokens/model/`). RMSNorm in place of LayerNorm; rotary position embeddings
+(RoPE) in place of the learned position table; a SwiGLU feed-forward network sized so its three matrices
+hold exactly as many weights as v1's two; and grouped-query attention with 2 key/value heads for 6 query
+heads, which shrinks the KV cache threefold. v2 has 14,189,952 parameters, 10.6% fewer than v1, and was
+trained on the identical data, steps and schedule. Short cumulative ablations, with two v1 seeds to
+measure run-to-run noise, show what each change contributes.
+
+**KV cache** (`model/cache.py`). One preallocated key and value buffer per layer at full context size,
+plus a length pointer. Each step runs the model on one new token; rolling back is moving the pointer.
+Past the context limit the cache restarts from the last three quarters of the text, because a cache
+cannot simply slide: deeper layers' keys were computed while the dropped tokens were still visible.
+
+**Fused attention.** A runtime switch to PyTorch's `scaled_dot_product_attention`, with explicit masks
+wherever the built-in causal mask would align queries and keys incorrectly.
+
+**CUDA graphs** (`generation/graphs.py`). Generation at this size is limited by the cost of launching
+about 200 small GPU operations per token, not by arithmetic. The one-token step is rewritten so that no
+shape changes and the position lives in a tensor, recorded once as a CUDA graph, and replayed for every
+token.
+
+**Quantization** (`quantization/`). Weight-only int8 (one scale per output row) and int4 (one scale per
+group of 64, two values per byte), written by hand. The shared embedding table stays in bf16.
+
+**Speculative decoding** (`generation/speculative.py`). A 1.7M-parameter draft model guesses several
+tokens; v2 checks them all in one pass and keeps those it agrees with, using the accept/reject rule
+that leaves the output distribution exactly v2's own.
+
+**Calibration** (`evaluation/calibration.py`). Expected calibration error and reliability diagrams on
+every held-out next-token prediction, for each precision and quantization level.
+
+**Judge mode** (`judge/`). Instead of writing, the model scores multiple-choice options in one batched
+pass. Questions are built automatically from held-out stories, with distractors taken from later in the
+same story and matched in length. The model's confidence over the options is calibrated by temperature
+scaling, and below a threshold chosen on a separate half of the questions it abstains and writes its own
+continuation instead.
+
+**Serving** (`serving/`). A local FastAPI app (`play`) streams stories from v1 and v2 side by side, with
+switches for the cache and fused attention, and exposes judge mode at `POST /judge`. It listens on
+127.0.0.1 only.
+
 ## Getting started
 
 Requires an NVIDIA GPU and [uv](https://docs.astral.sh/uv/). Python 3.14 and PyTorch's CUDA build
@@ -103,7 +179,19 @@ uv run python -m hello_tokens eval       # perplexity on every held-out token
 uv run pytest                            # the test suite, on the CPU, in a few seconds
 ```
 
-`write` accepts `--temperature`, `--top-k`, `--top-p`, `--max-tokens` and `--seed`.
+`write` accepts `--temperature`, `--top-k`, `--top-p`, `--max-tokens` and `--seed`, and the speed
+switches `--cache` and `--graphs`.
+
+v2 and its measurements:
+
+```
+uv run python -m hello_tokens train --name v2 --model v2      # the modern architecture, same budget
+uv run python -m hello_tokens bench --name v2 --dtype bfloat16 --cache --fused   # one benchmark row
+uv run python -m hello_tokens judge --name v2                  # multiple-choice accuracy and the switch
+uv run python -m hello_tokens play                             # the local playground in a browser
+uv run python scripts/gpu_benchmarks.py                        # every GPU measurement, resumable
+uv run python -m hello_tokens report                           # rebuild the tables from benchmarks/
+```
 
 ## Roadmap
 
@@ -117,14 +205,16 @@ uv run pytest                            # the test suite, on the CPU, in a few 
 
 ### v2: modern and fast
 
-- [ ] Modern components: RoPE, RMSNorm, SwiGLU, grouped-query attention
-- [ ] KV cache
-- [ ] int8 and int4 weight quantization
-- [ ] Speculative decoding with a small draft model
-- [ ] Judge mode: score a fixed set of answers in a single forward pass, falling back to generation below a confidence threshold
-- [ ] Calibration (expected calibration error), measured before and after quantization
-- [ ] Benchmarks: tokens per second, latency, and quality retained
-- [ ] A small local serving API
+- [x] Modern components: RoPE, RMSNorm, SwiGLU, grouped-query attention
+- [x] KV cache
+- [x] Fused attention
+- [ ] CUDA graphs for the one-token step (exact on the CPU; GPU test pending)
+- [x] int8 and int4 weight quantization
+- [x] Speculative decoding with a small draft model (draft training pending)
+- [x] Judge mode: score a fixed set of answers in a single forward pass, falling back to generation below a confidence threshold
+- [x] Calibration (expected calibration error), measured before and after quantization
+- [ ] Benchmarks: tokens per second, latency, and quality retained, for every row
+- [x] A small local serving API
 
 ## Design
 
