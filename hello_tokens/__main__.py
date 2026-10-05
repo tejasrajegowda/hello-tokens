@@ -93,6 +93,12 @@ def main(argv: list[str] | None = None) -> int:
     play.add_argument("--port", type=int, default=8000)
     play.add_argument("--no-browser", action="store_true", help="don't open a browser window")
     play.add_argument("--data-dir", type=Path, default=Path("data"))
+    judge = commands.add_parser("judge", help="multiple-choice test: score the options instead of writing")
+    judge.add_argument("--name", default="v2", help="which run's checkpoint to use")
+    judge.add_argument("--quantize", type=int, choices=[8, 4], help="store the block weights in int8 or int4")
+    judge.add_argument("--questions", type=int, default=2000, help="how many questions to build")
+    judge.add_argument("--target", type=float, default=0.9, help="accuracy the switch aims for")
+    judge.add_argument("--data-dir", type=Path, default=Path("data"))
     args = parser.parse_args(argv)
     # Without this, Windows slows a long-running process about 3x after a second (see power.py).
     opt_out_of_power_throttling()
@@ -101,6 +107,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_bench(args)
     if args.command == "play":
         return run_play(args)
+    if args.command == "judge":
+        return run_judge_command(args)
     if args.command == "profile":
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = load_model(Path("checkpoints") / f"{args.name}.pt", device).to(getattr(torch, args.dtype))
@@ -194,6 +202,43 @@ def run_bench(args) -> int:
             result.ece = bins.result().ece
         print(f"saved {save_result(result, RESULTS)}")
     print(format_table(load_results(RESULTS)))
+    return 0
+
+
+def run_judge_command(args) -> int:
+    """Build the question set once (data/judge/), score every question, save the result."""
+    import json
+
+    from hello_tokens.judge.evaluate import run_judge
+    from hello_tokens.judge.questions import build_questions, load_questions, save_questions
+
+    tokenizer = Tokenizer.load(args.data_dir / "tokenizer.bpe")
+    path = args.data_dir / "judge" / f"questions-{args.questions}.json"
+    if not path.exists():
+        text = (args.data_dir / "raw" / "TinyStoriesV2-GPT4-valid.txt").read_text(encoding="utf-8")
+        save_questions(build_questions(text, tokenizer, args.questions, seed=0), path)
+    questions = load_questions(path)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = load_model(Path("checkpoints") / f"{args.name}.pt", device)
+    if args.quantize:
+        quantize_model(model, args.quantize)
+    if device == "cuda":
+        model.to(torch.bfloat16)
+    label = args.name + (f" int{args.quantize}" if args.quantize else "")
+    print(f"judge: {label} on {len(questions)} questions ({device})", flush=True)
+    result = run_judge(model, tokenizer, questions, args.target,
+                       progress=lambda n: print(f"  {n} scored", flush=True))
+    result.update(row=label, device=device)
+    out = Path("benchmarks") / "judge" / f"{label.replace(' ', '-')}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    print(f"accuracy, answering everything: {result['accuracy_by_method'][result['method']]:.1%} "
+          f"({result['method']} scoring)")
+    print(f"the judge's own calibration (ECE): {result['option_ece_raw']:.3f} raw, "
+          f"{result['option_ece']:.3f} after temperature scaling (T = {result['temperature']:.1f})")
+    print(f"switch at confidence {result['threshold']:.1%}: answers {result['answered']:.1%} of questions, "
+          f"{result['accuracy_when_answering']:.1%} of them right (target {args.target:.0%})")
+    print(f"{result['ms_per_question']:.1f} ms per question · saved {out}")
     return 0
 
 

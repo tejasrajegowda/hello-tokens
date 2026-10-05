@@ -473,3 +473,35 @@ What was built, in order, and why.
   report, Figure 8), and this holds at 14M parameters. Quantization barely changes it: int4 loses 0.4
   points of accuracy and adds 0.001 to ECE. The full held-out evaluation follows in the next GPU
   session.
+
+## 26. Judge mode and the confidence switch
+
+- **Questions, built automatically** (`hello_tokens/judge/questions.py`). From a held-out story, take
+  its first sentences as the context. The true next sentence is one option; the other three are
+  sentences from later in the *same* story, the closest to it in length. Names, topic and length
+  therefore don't give the answer away. 2,000 questions, one per story, with a fixed seed; chance is 25%.
+- **Scoring** (`judge/scoring.py`). All four options go through the model in one batched pass, as the
+  context followed by each option, right-padded; padding cannot change a score, because a token never
+  sees what follows it. An option's score is the sum of its tokens' log-probabilities, or their mean;
+  a long context is cut from the left.
+- **The switch.** A softmax over the four scores gives the judge's confidence. Above a threshold it
+  answers; below it, it abstains, and a caller can fall back to writing. Everything is chosen on the
+  first 1,000 questions and reported on the other 1,000: the scoring method, the threshold (the lowest
+  that reaches 90% accuracy) and a calibration temperature.
+- **Temperature scaling** (Guo et al., 2017). Summing a whole sentence's log-probabilities makes the
+  gaps between options large, so the raw confidence is far too sure: option-level ECE 0.22, against
+  0.01 for next-token predictions (section 25). Dividing the scores by one fitted temperature corrects
+  it without changing any choice.
+- **Results** (CPU, fp32, 2,000 questions, reported on the second half):
+
+| model | accuracy (answer all) | option ECE raw → scaled | switch: answered | accuracy when answering |
+|---|---|---|---|---|
+| v1 | 71.6% (mean scoring) | 0.205 → 0.030 (T = 0.5) | 50.2% | 88.2% |
+| v2 | 72.0% (summed scoring) | 0.220 → 0.057 (T = 6.2) | 32.0% | 92.2% |
+
+- **Reading.** Both models pick the true next sentence about 72% of the time, against 25% by chance.
+  Calibrated, the switch trades coverage for accuracy as intended. The targets are set on one half and
+  met on the other within about two points either way, which is what an honest split shows. Results:
+  `benchmarks/judge/`. Tests cover the questions' construction, the batched scores against log-probabilities
+  computed one option at a time, a context longer than the window, the switch and threshold by hand,
+  and temperature scaling recovering a known overconfidence factor of 5.

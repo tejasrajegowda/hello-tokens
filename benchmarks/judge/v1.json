@@ -1,0 +1,40 @@
+{
+  "questions": 2000,
+  "ms_per_question": 112.19844069999999,
+  "method": "mean",
+  "accuracy_by_method": {
+    "summed": 0.698,
+    "mean": 0.716
+  },
+  "temperature": 0.46469491460722967,
+  "option_ece_raw": 0.20498073433586844,
+  "option_ece": 0.030483942144952113,
+  "target_accuracy": 0.9,
+  "threshold": 0.69743992145148,
+  "answered": 0.502,
+  "accuracy_when_answering": 0.8824701195219123,
+  "coverage_curve": [
+    {
+      "threshold": 0.3,
+      "coverage": 0.996,
+      "accuracy": 0.7178714859437751
+    },
+    {
+      "threshold": 0.5,
+      "coverage": 0.812,
+      "accuracy": 0.7857142857142857
+    },
+    {
+      "threshold": 0.7,
+      "coverage": 0.498,
+      "accuracy": 0.8855421686746988
+    },
+    {
+      "threshold": 0.9,
+      "coverage": 0.187,
+      "accuracy": 0.9518716577540107
+    }
+  ],
+  "row": "v1",
+  "device": "cpu"
+}
