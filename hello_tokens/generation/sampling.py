@@ -16,16 +16,19 @@ import torch
 from hello_tokens.model.gpt import GPT
 
 
-def sample_next(
+def filtered_probabilities(
     logits: torch.Tensor,
     temperature: float = 1.0,
     top_k: int | None = None,
     top_p: float | None = None,
-    generator: torch.Generator | None = None,
-) -> int:
-    """Choose one token id from a 1-D tensor of scores over the vocabulary."""
+) -> torch.Tensor:
+    """The distribution a token is actually drawn from, after the three dials.
+
+    Speculative decoding compares two models' distributions, so it needs exactly this one, not the
+    raw softmax. Temperature 0 puts all the probability on the top token.
+    """
     if temperature == 0:
-        return int(torch.argmax(logits))  # greedy: no randomness at all
+        return torch.nn.functional.one_hot(torch.argmax(logits), logits.numel()).float()
     logits = logits.float() / temperature
     if top_k is not None:
         kth_best = torch.topk(logits, min(top_k, logits.numel())).values[-1]
@@ -36,7 +39,20 @@ def sample_next(
         # Drop a token if the tokens ranked above it already reach p. The top token always stays.
         drop = cumulative - torch.softmax(sorted_logits, dim=-1) >= top_p
         logits = logits.masked_fill(drop.scatter(0, order, drop), float("-inf"))
-    probabilities = torch.softmax(logits, dim=-1)
+    return torch.softmax(logits, dim=-1)
+
+
+def sample_next(
+    logits: torch.Tensor,
+    temperature: float = 1.0,
+    top_k: int | None = None,
+    top_p: float | None = None,
+    generator: torch.Generator | None = None,
+) -> int:
+    """Choose one token id from a 1-D tensor of scores over the vocabulary."""
+    if temperature == 0:
+        return int(torch.argmax(logits))  # greedy: no randomness at all
+    probabilities = filtered_probabilities(logits, temperature, top_k, top_p)
     return int(torch.multinomial(probabilities, 1, generator=generator))
 
 

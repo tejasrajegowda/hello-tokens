@@ -90,6 +90,15 @@ def test_each_preset_adds_one_change_to_the_one_before():
         assert sum(a[k] != b[k] for k in a) == 1  # exactly one field differs
 
 
+def test_the_draft_model_is_small_and_reads_the_same_tokens():
+    from hello_tokens.model.config import DRAFT
+
+    # Classic blocks: 12w^2 + 13w each (w = 192), plus the word and position tables and a final norm.
+    w = 192
+    assert GPT(DRAFT).parameter_count() == 2 * (12 * w * w + 13 * w) + 4096 * w + 256 * w + 2 * w == 1_725_696
+    assert (DRAFT.vocab_size, DRAFT.context) == (V2.vocab_size, V2.context)
+
+
 def test_bad_switch_values_are_rejected():
     with pytest.raises(ValueError):
         ModelConfig(feed_forward="relu")

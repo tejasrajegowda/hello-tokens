@@ -3,7 +3,7 @@ import math
 import pytest
 import torch
 
-from hello_tokens.generation.sampling import generate, sample_next
+from hello_tokens.generation.sampling import filtered_probabilities, generate, sample_next
 from hello_tokens.model.config import ModelConfig
 from hello_tokens.model.gpt import GPT
 
@@ -39,6 +39,19 @@ def test_top_p_keeps_the_smallest_set_reaching_p():
     assert set(draws(top_p=0.75)) == {0, 1}
     # Even a tiny p keeps the single best token.
     assert set(draws(n=50, top_p=0.01)) == {0}
+
+
+def test_the_filtered_distribution_is_what_is_sampled():
+    # 0.5 + 0.3 = 0.8 reaches top-p 0.75: only tokens 0 and 1 remain, renormalised to 0.625 / 0.375.
+    p = filtered_probabilities(LOGITS, temperature=1.0, top_p=0.75)
+    assert torch.allclose(p, torch.tensor([0.625, 0.375, 0.0, 0.0]))
+    assert torch.allclose(filtered_probabilities(LOGITS, top_k=1), torch.tensor([1.0, 0, 0, 0]))
+    assert torch.equal(filtered_probabilities(LOGITS, temperature=0), torch.tensor([1.0, 0, 0, 0]))
+    # sample_next draws from exactly that distribution: the same seed gives the same draws.
+    g1, g2 = torch.Generator().manual_seed(3), torch.Generator().manual_seed(3)
+    for _ in range(20):
+        expected = int(torch.multinomial(filtered_probabilities(LOGITS, 0.8, None, 0.9), 1, generator=g2))
+        assert sample_next(LOGITS, 0.8, None, 0.9, g1) == expected
 
 
 @pytest.fixture

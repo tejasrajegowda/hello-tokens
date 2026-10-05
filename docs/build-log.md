@@ -389,3 +389,14 @@ What was built, in order, and why.
   token by token with the cache, and on a block of four new tokens over ten stored ones, the
   verification step of speculative decoding. It is causal, and the switch goes both ways. The speed
   measurement follows in the next GPU session.
+
+## 22. Preparing speculative decoding
+
+- **The sampled distribution, exposed.** `filtered_probabilities` returns the exact distribution a token
+  is drawn from after temperature, top-k and top-p (one-hot at temperature 0). `sample_next` now draws
+  from it, with unchanged output for the same seed. Speculative decoding's accept/reject rule compares
+  two models' distributions, so it needs exactly these.
+- **The draft model.** `DRAFT` is a classic GPT with 2 layers, width 192 and 3 heads: 1,725,696
+  parameters, about 12% of v2, with the same vocabulary and context. It uses the classic parts on purpose:
+  its step cost is also launch overhead, and LayerNorm (one fused kernel) and a learned position table
+  launch fewer kernels than RMSNorm and RoPE. `train --model draft` trains it (next GPU session).

@@ -47,3 +47,11 @@ PRESETS = {
     "swiglu": ModelConfig(norm="rmsnorm", position="rope", feed_forward="swiglu"),
     "v2": ModelConfig(norm="rmsnorm", position="rope", feed_forward="swiglu", kv_heads=2),
 }
+
+# The draft model for speculative decoding: tiny, so each guess is cheap. Classic parts on purpose:
+# a step's cost here is the number of GPU launches, and LayerNorm (one fused kernel) and a learned
+# position table launch fewer than RMSNorm and RoPE. Same vocabulary and context as the big models.
+DRAFT = ModelConfig(width=192, layers=2, heads=3)
+
+# Every shape `train --model` accepts.
+MODELS = {**PRESETS, "draft": DRAFT}
