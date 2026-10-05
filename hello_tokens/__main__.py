@@ -14,6 +14,7 @@ from hello_tokens.corpus.encode import encode_file, load_tokens
 from hello_tokens.evaluation.perplexity import perplexity
 from hello_tokens.corpus.sample import read_sample
 from hello_tokens.model.config import MODELS
+from hello_tokens.quantization.weights import quantize_model
 from hello_tokens.tokenizer.tokenizer import Tokenizer
 from hello_tokens.generation.power import opt_out_of_power_throttling
 from hello_tokens.generation.profile_step import profile_steps
@@ -72,6 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     eval_cmd = commands.add_parser("eval", help="perplexity of a trained model on every held-out token")
     eval_cmd.add_argument("--name", default="v1", help="which run's checkpoint to use")
     eval_cmd.add_argument("--data-dir", type=Path, default=Path("data"))
+    eval_cmd.add_argument("--quantize", type=int, choices=[8, 4], help="store the block weights in int8 or int4")
     profile_cmd = commands.add_parser("profile", help="where the time of one generation step goes")
     profile_cmd.add_argument("--name", default="v1", help="which run's checkpoint to use")
     profile_cmd.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
@@ -82,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
     bench.add_argument("--fused", action="store_true", help="use PyTorch's fused attention kernel")
     bench.add_argument("--speculative", metavar="DRAFT", help="speculative decoding with this draft checkpoint")
     bench.add_argument("--k", type=int, default=4, help="tokens drafted per round (speculative)")
+    bench.add_argument("--quantize", type=int, choices=[8, 4], help="store the block weights in int8 or int4")
     bench.add_argument("--skip-quality", action="store_true", help="don't compute held-out perplexity")
     bench.add_argument("--table", action="store_true", help="only print the table of saved rows")
     bench.add_argument("--data-dir", type=Path, default=Path("data"))
@@ -110,6 +113,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "eval":
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = load_model(Path("checkpoints") / f"{args.name}.pt", device)
+        if args.quantize:
+            quantize_model(model, args.quantize)
         started = time.perf_counter()
         # Scored in float32, not bf16, so the reported number carries no rounding from lower precision.
         score = perplexity(model, load_tokens(args.data_dir / "tokens" / "valid.bin"), device=device)
@@ -148,15 +153,19 @@ def run_bench(args) -> int:
     """Benchmark one checkpoint as one row, save it, and print every saved row."""
     if not args.table:
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        model = load_model(Path("checkpoints") / f"{args.name}.pt", device).to(getattr(torch, args.dtype))
-        model.use_fused_attention(args.fused)
+        model = load_model(Path("checkpoints") / f"{args.name}.pt", device)
+        if args.quantize:  # round the full-precision weights, then cast the rest
+            quantize_model(model, args.quantize)
+        model.to(getattr(torch, args.dtype)).use_fused_attention(args.fused)
         setup = Setup(args.name, args.dtype, cache="kv" if args.cache or args.speculative else "none",
                       attention="fused" if args.fused else "ours",
-                      decoding=f"speculative ({args.speculative}, k={args.k})" if args.speculative else "normal")
+                      decoding=f"speculative ({args.speculative}, k={args.k})" if args.speculative else "normal",
+                      quantization=f"int{args.quantize}" if args.quantize else "none")
         # The row's name lists what differs from the plain model, e.g. "v2 bf16 cache fused".
         row = " ".join([args.name, "fp32" if args.dtype == "float32" else "bf16"]
                        + ["cache"] * args.cache + ["fused"] * args.fused
-                       + ([f"spec-k{args.k}"] if args.speculative else []))
+                       + ([f"spec-k{args.k}"] if args.speculative else [])
+                       + ([f"int{args.quantize}"] if args.quantize else []))
         print(f"benchmarking {row} on {device}", flush=True)
         write = lambda prompt, n: generate(model, prompt, n, temperature=0, stop_id=None, cache=args.cache)
         stats: dict = {}

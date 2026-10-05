@@ -423,3 +423,24 @@ What was built, in order, and why.
   On the real checkpoints, v2 with v1 as the draft writes greedily exactly what v2 writes alone, and
   keeps 97% of v1's guesses.
 - **`bench --speculative DRAFT --k K`** measures it once the draft model is trained.
+
+## 24. int8 and int4 weight quantization
+
+- **Method** (`hello_tokens/quantization/weights.py`, written by hand). Symmetric weight-only
+  quantization: weight ≈ integer × scale, with the scale set by the largest absolute value, so zero
+  stays exactly zero.
+  - **int8:** one scale per output row, integers −127…127, one byte each.
+  - **int4:** one scale per group of 64 weights, integers −7…7, shifted to 1…15 and packed two per
+    byte.
+  - `quantize_model` replaces every linear layer inside the blocks. The word table, shared by the input
+    and output layers, stays in full precision.
+  - Weights are restored at each use, which adds work to every step. On this hardware it saves memory,
+    not time.
+- **Tests.** Each weight is off by at most half a scale step (int8 per row, int4 per group). int4
+  packing round-trips exactly, including a byte worked by hand. A quantized layer computes with its
+  restored weights, and quantized models stay close to the original's outputs. Sizes match the
+  arithmetic exactly: v2 in bf16 is 28.64 MB (including 0.26 MB of RoPE tables), int8 is 0.56× that,
+  and int4 is 10.16 MB (0.355×).
+- **First quality reading** (v2, fp32, first 50,000 held-out tokens, CPU): perplexity 3.5983 at full
+  precision, **3.5985 with int8** (+0.01%) and **3.6599 with int4** (+1.7%). The full held-out
+  evaluation and the speed rows (`eval --quantize`, `bench --quantize`) follow in the next GPU session.
