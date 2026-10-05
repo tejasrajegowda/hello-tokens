@@ -566,3 +566,17 @@ What was built, in order, and why.
   existed, GPU memory on a CPU run) is shown as "–", never as 0.
 - **Tests.** Ordering, the speed-up baseline, dashes for missing values, the judge table, reading the
   saved files, and marker replacement that keeps the surrounding text and is unchanged when run twice.
+
+## 30. One command for the GPU measurements
+
+- `scripts/gpu_benchmarks.py` runs every GPU step of v2 in order: the GPU-only CUDA graph tests first
+  (nothing is measured until they pass), training and evaluating the draft model, every speed row for v1
+  and v2 (bf16, cache, fused, graphs and their combinations), speculative decoding at k = 2, 4 and 6,
+  int8 and int4 (full held-out evaluation, plain and with graphs), and finally the report.
+- **Resumable.** Each finished step is recorded in `runs/gpu-benchmarks-done.txt` and skipped on the next
+  run, so an interrupted batch continues where it stopped. The first failure stops it; all output also
+  goes to `runs/gpu-benchmarks.log`. `--dry-run` lists the steps and which are done. Without a visible
+  GPU it refuses to start, since it measures GPU speed.
+- **Quality where it can change.** Perplexity and ECE are measured for rows that change the computed
+  numbers (precision, attention kernel, quantization). The cache, graphs and speculative decoding produce
+  the same distribution by construction, so those rows skip the held-out pass, and the report says so.

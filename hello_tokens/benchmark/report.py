@@ -102,7 +102,9 @@ def build_report(results_dir: Path, judge_dir: Path) -> str:
         "",
         f"Greedy writing, no stop token, median of 5 runs; tok/s at (prompt + new tokens). Speed-up, first "
         f"token and ms / token are at {LONG[0]}+{LONG[1]}. Speed-up is against the same model in plain bf16. "
-        "Perplexity and ECE are on the held-out text.",
+        "Perplexity and ECE are on the held-out text. Rows that only add the KV cache, CUDA graphs or "
+        "speculative decoding produce their model's distribution unchanged (exact in fp32, as tested), "
+        "so their quality is not measured again.",
         "",
         speed_table(results) if results else "_No rows measured yet._",
         "",
