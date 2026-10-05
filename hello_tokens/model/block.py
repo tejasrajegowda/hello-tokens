@@ -66,3 +66,10 @@ class Block(nn.Module):
         x = x + self.attention(self.norm1(x), cache, layer)
         x = x + self.feed_forward(self.norm2(x))
         return x
+
+    def decode(self, x: torch.Tensor, cache: KVCache, layer: int, position: torch.Tensor,
+               visible: torch.Tensor) -> torch.Tensor:
+        """The fixed-shape one-token step (see CausalSelfAttention.decode)."""
+        x = x + self.attention.decode(self.norm1(x), cache, layer, position, visible)
+        x = x + self.feed_forward(self.norm2(x))
+        return x

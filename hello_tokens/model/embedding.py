@@ -31,3 +31,9 @@ class Embedding(nn.Module):
             return self.token(ids)
         positions = torch.arange(offset, offset + length, device=ids.device)
         return self.token(ids) + self.position(positions)
+
+    def at(self, ids: torch.Tensor, position: torch.Tensor) -> torch.Tensor:
+        """(batch, 1) ids of one new token at `position`, a 1-element tensor (see KVCache.store_at)."""
+        if self.position is None:
+            return self.token(ids)
+        return self.token(ids) + self.position(position)

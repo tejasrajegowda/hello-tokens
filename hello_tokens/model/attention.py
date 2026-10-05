@@ -61,6 +61,19 @@ def fused_attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor,
     return F.scaled_dot_product_attention(query, key, value, attn_mask=mask, enable_gqa=gqa)
 
 
+def masked_attention(
+    query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, visible: torch.Tensor
+) -> torch.Tensor:
+    """Attention of one new query over a whole fixed-size cache; `visible` (1, keys) marks the filled
+    positions. The rest of the buffer holds zeros or stale tokens, and its scores become -inf, so its
+    weights are exactly 0. Used by the fixed-shape step (lesson 17b), where the number of keys is always
+    the full context, so that the shapes never change between steps.
+    """
+    scores = query @ key.transpose(-2, -1) / math.sqrt(query.shape[-1])
+    scores = scores.masked_fill(~visible, float("-inf"))
+    return torch.softmax(scores, dim=-1) @ value
+
+
 class CausalSelfAttention(nn.Module):
     """Several attention heads side by side, each free to look for something different."""
 
@@ -83,17 +96,25 @@ class CausalSelfAttention(nn.Module):
         # weights, same results; a runtime choice, not part of the model's shape.
         self.fused = False
 
-    def forward(self, x: torch.Tensor, cache: KVCache | None = None, layer: int = 0) -> torch.Tensor:
+    def _project(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Queries, keys and values for every head: each (batch, heads, time, head_width)."""
         batch, length, width = x.shape
-        offset = cache.length if cache is not None else 0  # position of the first new token
         query, key, value = self.qkv(x).split([width, self.kv_width, self.kv_width], dim=-1)
 
         # (batch, time, heads * head_width) -> (batch, heads, time, head_width): one slice per head.
         def split_heads(t: torch.Tensor, heads: int) -> torch.Tensor:
             return t.view(batch, length, heads, self.head_width).transpose(1, 2)
 
-        query = split_heads(query, self.heads)
-        key, value = split_heads(key, self.kv_heads), split_heads(value, self.kv_heads)
+        return split_heads(query, self.heads), split_heads(key, self.kv_heads), split_heads(value, self.kv_heads)
+
+    def _combine(self, output: torch.Tensor) -> torch.Tensor:
+        # Put the heads back side by side: (batch, heads, time, head_width) -> (batch, time, width).
+        batch, _, length, _ = output.shape
+        return self.out(output.transpose(1, 2).reshape(batch, length, self.heads * self.head_width))
+
+    def forward(self, x: torch.Tensor, cache: KVCache | None = None, layer: int = 0) -> torch.Tensor:
+        offset = cache.length if cache is not None else 0  # position of the first new token
+        query, key, value = self._project(x)
         if self.rope is not None:
             # Values carry content, not position. With a cache, the new tokens sit after the stored ones.
             query, key = self.rope(query, offset), self.rope(key, offset)
@@ -109,6 +130,27 @@ class CausalSelfAttention(nn.Module):
                 group = self.heads // self.kv_heads
                 key, value = key.repeat_interleave(group, dim=1), value.repeat_interleave(group, dim=1)
             output, _ = causal_attention(query, key, value)
-        # Put the heads back side by side: (batch, heads, time, head_width) -> (batch, time, width).
-        output = output.transpose(1, 2).reshape(batch, length, width)
-        return self.out(output)
+        return self._combine(output)
+
+    def decode(self, x: torch.Tensor, cache: KVCache, layer: int, position: torch.Tensor,
+               visible: torch.Tensor) -> torch.Tensor:
+        """One new token at `position` (a 1-element tensor), attending over the whole cache buffer.
+
+        The same result as `forward` with a cache, but every shape is fixed and the position lives in a
+        tensor, so a CUDA graph can record it once and replay it at every step (lesson 17b). The price
+        is a little extra arithmetic: attention always covers all `context` slots, the unfilled ones
+        weighted 0. At this model's size a step is dominated by launching work, not by doing it.
+        """
+        query, key, value = self._project(x)
+        if self.rope is not None:
+            query, key = self.rope.at(query, position), self.rope.at(key, position)
+        key, value = cache.store_at(layer, key, value, position)
+        if self.fused:
+            output = F.scaled_dot_product_attention(query, key, value, attn_mask=visible,
+                                                    enable_gqa=self.kv_heads != self.heads)
+        else:
+            if self.kv_heads != self.heads:
+                group = self.heads // self.kv_heads
+                key, value = key.repeat_interleave(group, dim=1), value.repeat_interleave(group, dim=1)
+            output = masked_attention(query, key, value, visible)
+        return self._combine(output)

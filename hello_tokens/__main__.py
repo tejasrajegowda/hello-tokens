@@ -70,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     write.add_argument("--top-p", type=float, default=0.95)
     write.add_argument("--seed", type=int, default=None)
     write.add_argument("--cache", action="store_true", help="use the KV cache")
+    write.add_argument("--graphs", action="store_true", help="replay each one-token step as a CUDA graph (implies --cache)")
     write.add_argument("--data-dir", type=Path, default=Path("data"))
     eval_cmd = commands.add_parser("eval", help="perplexity of a trained model on every held-out token")
     eval_cmd.add_argument("--name", default="v1", help="which run's checkpoint to use")
@@ -83,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
     bench.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
     bench.add_argument("--cache", action="store_true", help="use the KV cache")
     bench.add_argument("--fused", action="store_true", help="use PyTorch's fused attention kernel")
+    bench.add_argument("--graphs", action="store_true", help="replay each one-token step as a CUDA graph (implies --cache)")
     bench.add_argument("--speculative", metavar="DRAFT", help="speculative decoding with this draft checkpoint")
     bench.add_argument("--k", type=int, default=4, help="tokens drafted per round (speculative)")
     bench.add_argument("--quantize", type=int, choices=[8, 4], help="store the block weights in int8 or int4")
@@ -147,7 +149,8 @@ def main(argv: list[str] | None = None) -> int:
         tokenizer = Tokenizer.load(args.data_dir / "tokenizer.bpe")
         model = load_model(Path("checkpoints") / f"{args.name}.pt", device)
         new = generate(model, tokenizer.encode(args.prompt), args.max_tokens, args.temperature,
-                       args.top_k, args.top_p, stop_id=tokenizer.end_of_text_id, seed=args.seed, cache=args.cache)
+                       args.top_k, args.top_p, stop_id=tokenizer.end_of_text_id, seed=args.seed, cache=args.cache,
+                       graphs=args.graphs)
         print(args.prompt + tokenizer.decode(new))
         return 0
     if args.command == "train":
@@ -175,17 +178,23 @@ def run_bench(args) -> int:
         if args.quantize:  # round the full-precision weights, then cast the rest
             quantize_model(model, args.quantize)
         model.to(getattr(torch, args.dtype)).use_fused_attention(args.fused)
-        setup = Setup(args.name, args.dtype, cache="kv" if args.cache or args.speculative else "none",
+        if args.graphs and args.speculative:
+            print("--graphs applies to normal decoding only")
+            return 2
+        setup = Setup(args.name, args.dtype, cache="kv" if args.cache or args.graphs or args.speculative else "none",
                       attention="fused" if args.fused else "ours",
+                      graphs=("cuda graph" if device == "cuda" else "fixed-shape step, no graph (cpu)")
+                      if args.graphs else "none",
                       decoding=f"speculative ({args.speculative}, k={args.k})" if args.speculative else "normal",
                       quantization=f"int{args.quantize}" if args.quantize else "none")
         # The row's name lists what differs from the plain model, e.g. "v2 bf16 cache fused".
         row = " ".join([args.name, "fp32" if args.dtype == "float32" else "bf16"]
-                       + ["cache"] * args.cache + ["fused"] * args.fused
+                       + ["cache"] * (args.cache or args.graphs) + ["fused"] * args.fused + ["graphs"] * args.graphs
                        + ([f"spec-k{args.k}"] if args.speculative else [])
                        + ([f"int{args.quantize}"] if args.quantize else []))
         print(f"benchmarking {row} on {device}", flush=True)
-        write = lambda prompt, n: generate(model, prompt, n, temperature=0, stop_id=None, cache=args.cache)
+        write = lambda prompt, n: generate(model, prompt, n, temperature=0, stop_id=None, cache=args.cache,
+                                           graphs=args.graphs)
         stats: dict = {}
         if args.speculative:
             draft = load_model(Path("checkpoints") / f"{args.speculative}.pt", device).to(getattr(torch, args.dtype))

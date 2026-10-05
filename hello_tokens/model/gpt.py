@@ -53,6 +53,23 @@ class GPT(nn.Module):
             cache.advance(ids.shape[1])
         return self.output(self.final_norm(x))
 
+    def decode_step(self, ids: torch.Tensor, position: torch.Tensor, cache: KVCache) -> torch.Tensor:
+        """One new token per row, (batch, 1) ids, at `position` (a 1-element tensor): its logits, (batch, vocab).
+
+        The same numbers as `forward(ids, cache)` for one token, written so that nothing changes shape
+        and nothing depends on a Python number between steps. That is what lets a CUDA graph record
+        this step once and replay it for every token (generation/graphs.py). Two differences follow:
+        - the position comes in as a tensor, so the caller must keep it equal to `cache.length`;
+        - the cache's pointer is not moved here (a recorded graph can't run Python): the caller calls
+          `cache.advance(1)` after each step.
+        """
+        # Which cache slots are filled, as one row (1 query, context keys): the shape attention expects.
+        visible = (torch.arange(self.config.context, device=ids.device) <= position).unsqueeze(0)
+        x = self.embedding.at(ids, position)
+        for layer, block in enumerate(self.blocks):
+            x = block.decode(x, cache, layer, position, visible)
+        return self.output(self.final_norm(x))[:, -1]
+
     def use_fused_attention(self, on: bool = True) -> "GPT":
         """Switch every layer to PyTorch's fused attention kernel (or back to ours)."""
         for block in self.blocks:

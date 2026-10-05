@@ -38,6 +38,20 @@ class KVCache:
         self.values[layer, :, :, start:end] = value
         return self.keys[layer, :, :, :end], self.values[layer, :, :, :end]
 
+    def store_at(self, layer: int, key: torch.Tensor, value: torch.Tensor,
+                 position: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Write one new token's key and value at `position` (a 1-element tensor); return the whole
+        buffers, filled or not.
+
+        The fixed-shape twin of `store`, for a CUDA graph (lesson 17b). A graph replays recorded GPU
+        work with the numbers it saw while recording, so a position held in Python would be frozen in.
+        Held in a tensor, it is read on the GPU at every replay. The returned buffers always have the
+        full context length, so their shape never changes either; the caller hides the unfilled part.
+        """
+        self.keys[layer].index_copy_(2, position, key)
+        self.values[layer].index_copy_(2, position, value)
+        return self.keys[layer], self.values[layer]
+
     def advance(self, count: int) -> None:
         self.length += count
 

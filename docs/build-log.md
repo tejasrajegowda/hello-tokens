@@ -522,3 +522,32 @@ What was built, in order, and why.
 - **Tests.** Every switch combination writes the same story. Each model answers or abstains, and its
   probabilities sum to one. A saved calibration is applied (a huge temperature evens the odds and forces
   an abstention), and malformed requests get 422.
+
+## 28. CUDA graphs for the one-token step
+
+- **Why.** Profiling (§11) showed a generation step is overhead-bound: about 200 small GPU operations are
+  launched from Python per token, and launching them takes longer than running them. A CUDA graph records
+  the GPU work of one step once; each later step is a single replay, with no Python between the
+  operations.
+- **`torch.compile` was not used.** Its `reduce-overhead` mode does the same thing automatically but
+  needs Triton, which is not available on this Windows setup. Recording by hand
+  (`torch.cuda.CUDAGraph`) needs nothing extra.
+- **A fixed-shape step.** A recording replays the same operations on the same memory with the same
+  shapes, so `GPT.decode_step` was written to change none of them between tokens. The token and its
+  position live in tensors that are overwritten before each replay; RoPE angles, the learned position
+  row and the cache slot are looked up with that position tensor (`index_select`, `index_copy_`).
+  Attention always covers the full 256-slot cache, with a mask hiding the slots not yet filled, so its
+  shape never changes. That costs a little extra arithmetic, which is cheap in an overhead-bound step.
+  The cache pointer is moved by the caller, since a replay cannot run Python.
+- **`OneTokenStep`** (`hello_tokens/generation/graphs.py`) warms the step up on a side stream, records it,
+  and replays it. One recording is kept per model, precision and attention kernel, and reused across
+  stories by emptying its cache (moving the pointer to 0). Prompts, and the re-read when the cache is full,
+  still run normally. `write --graphs` and `bench --graphs` turn it on; on a CPU the same fixed-shape
+  step runs without a graph.
+- **Tests (fp32, CPU, v1 and v2 shapes, both attention kernels).** The fixed-shape step equals the
+  ordinary cached step at every position up to the end of the context, and leaves identical keys and
+  values in the cache. Stale entries left beyond the pointer by a rollback are ignored. Writing with the
+  step gives the same text as writing with the cache, greedy and sampled, through two cache restarts, and
+  with int8 weights. On the real v1 and v2 checkpoints both write the same 300-token story. A further
+  test compares a replayed graph with the ordinary step on the GPU; it runs, with the speed measurement,
+  in the next GPU session.
