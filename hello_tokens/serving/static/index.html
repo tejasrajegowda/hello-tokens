@@ -26,6 +26,11 @@
   .controls { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; margin-top: 12px; }
   .controls label { display: flex; align-items: center; gap: 8px; font-size: .9rem; color: var(--muted); }
   .controls output { color: var(--text); min-width: 2.6em; font-variant-numeric: tabular-nums; }
+  .opt { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .optrow { display: grid; grid-template-columns: 1fr 64px; gap: 8px; align-items: center; margin: 6px 0; font-size: .92rem; }
+  .optbar { height: 6px; border-radius: 3px; background: var(--accent); margin-top: 3px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .8rem; font-weight: 600; }
+  .badge.answer { background: var(--accent); color: #fff; } .badge.abstain { background: rgba(var(--unsure), .25); }
   input[type=number] { width: 7.5em; font: inherit; color: inherit; background: transparent;
                        border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
   button { font: inherit; border: 0; border-radius: 8px; padding: 9px 20px; cursor: pointer;
@@ -68,12 +73,30 @@
       <label>top-p <input id="top_p" type="range" min="0.05" max="1" step="0.05" value="0.95"><output for="top_p"></output></label>
       <label>length <input id="max_tokens" type="range" min="10" max="400" step="10" value="200"><output for="max_tokens"></output></label>
       <label>seed <input id="seed" type="number" min="0" placeholder="random"><button class="ghost" id="clearSeed" type="button">random</button></label>
+      <label title="Remember earlier work instead of re-reading the story each word: same text"><input id="cache" type="checkbox"> KV cache</label>
+      <label title="PyTorch's one-step attention kernel: same text"><input id="fused" type="checkbox"> fused attention</label>
       <button id="write" type="button">Write</button>
     </div>
     <div class="status" id="status" role="status"></div>
   </section>
 
   <div class="grid" id="grid"></div>
+
+  <section class="panel" style="margin-top:16px" aria-labelledby="judgeTitle">
+    <h2 id="judgeTitle" style="font-size:1.05rem;margin:0 0 4px">Judge mode</h2>
+    <p class="sub" style="margin:0 0 10px">Give a story and some possible next sentences. Each model scores them all in one pass,
+      then answers if it is confident enough, or says it isn't sure and writes its own continuation instead.</p>
+    <textarea id="judgeContext" aria-label="Story so far">Lily had a small red kite. She took it to the park on a windy day. The kite flew high in the sky.</textarea>
+    <div id="judgeOptions" style="display:grid;gap:8px;margin-top:10px">
+      <input class="opt" value="Lily laughed and ran with the string.">
+      <input class="opt" value="Lily went to sleep in her bed.">
+      <input class="opt" value="The kite was a big blue car.">
+      <input class="opt" value="">
+    </div>
+    <div class="controls"><button id="judge" type="button">Judge</button></div>
+    <div class="status" id="judgeStatus" role="status"></div>
+    <div class="grid" id="judgeResults"></div>
+  </section>
 
   <div class="legend"><span>model was sure</span><span class="swatch"></span><span>model had to choose</span>
     <span>· hover a word to see the odds of its five likeliest words</span></div>
@@ -161,7 +184,8 @@ function finish(d) {
 async function write() {
   const button = $("write"), status = $("status");
   const body = { prompt: $("prompt").value, temperature: +$("temperature").value, top_p: +$("top_p").value,
-                 max_tokens: +$("max_tokens").value, seed: $("seed").value === "" ? null : +$("seed").value };
+                 max_tokens: +$("max_tokens").value, seed: $("seed").value === "" ? null : +$("seed").value,
+                 cache: $("cache").checked, fused: $("fused").checked };
   button.disabled = true; status.className = "status"; status.textContent = "writing…";
   reset(body.prompt);
   try {
@@ -196,6 +220,51 @@ async function write() {
 }
 
 $("write").onclick = write;
+
+async function judge() {
+  const status = $("judgeStatus"), out = $("judgeResults");
+  const options = [...document.querySelectorAll(".opt")].map((o) => o.value.trim()).filter(Boolean);
+  status.className = "status"; status.textContent = "judging…"; out.innerHTML = "";
+  try {
+    const response = await fetch("/judge", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context: $("judgeContext").value, options }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(`${response.status}: ${typeof data.detail === "string" ? data.detail : "check the options"}`);
+    status.textContent = "";
+    for (const r of data) {
+      const col = document.createElement("section");
+      col.className = "panel";
+      const head = document.createElement("div");
+      head.innerHTML = `<b></b> <span class="badge ${r.decision}"></span>
+        <div class="label" style="color:var(--muted);font-size:.85rem"></div>`;
+      head.querySelector("b").textContent = r.model;
+      head.querySelector(".badge").textContent = r.decision === "answer" ? `answers: option ${r.choice + 1}` : "not sure";
+      head.querySelector(".label").textContent = `confidence ${(100 * r.confidence).toFixed(1)}% · needs ${(100 * r.threshold).toFixed(1)}%`
+        + (r.calibrated ? " (calibrated)" : " (not calibrated: run `judge` first)") + ` · ${r.ms.toFixed(0)} ms`;
+      col.appendChild(head);
+      options.forEach((text, i) => {
+        const row = document.createElement("div");
+        row.className = "optrow";
+        row.innerHTML = `<div><div></div><div class="optbar"></div></div><div></div>`;
+        row.children[0].children[0].textContent = `${i + 1}. ${text}`;
+        row.children[0].children[1].style.width = `${Math.max(1, 100 * r.probabilities[i])}%`;
+        row.children[1].textContent = `${(100 * r.probabilities[i]).toFixed(1)}%`;
+        if (i === r.choice) row.style.fontWeight = "600";
+        col.appendChild(row);
+      });
+      if (r.fallback) {
+        const p = document.createElement("p");
+        p.className = "story"; p.style.minHeight = "0";
+        p.textContent = "Its own continuation instead: " + r.fallback;
+        col.appendChild(p);
+      }
+      out.appendChild(col);
+    }
+  } catch (e) {
+    status.className = "status error"; status.textContent = e.message;
+  }
+}
+$("judge").onclick = judge;
 $("prompt").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) write(); });
 
 // The hover card: the model's own odds for its five likeliest next words.

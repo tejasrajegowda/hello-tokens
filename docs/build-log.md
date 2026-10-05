@@ -505,3 +505,20 @@ What was built, in order, and why.
   `benchmarks/judge/`. Tests cover the questions' construction, the batched scores against log-probabilities
   computed one option at a time, a context longer than the window, the switch and threshold by hand,
   and temperature scaling recovering a known overconfidence factor of 5.
+
+## 27. Serving: the judge endpoint and the speed switches
+
+- **`POST /judge`** takes a context and two to eight options. Each model scores them in one pass and
+  applies the method, temperature and threshold saved by its `judge` run (`benchmarks/judge/<model>.json`).
+  It answers when its calibrated confidence reaches the threshold; otherwise it abstains and, unless asked
+  not to, writes its own continuation with the KV cache. The response gives the probabilities, the choice,
+  the confidence, the decision, whether the model is calibrated, and the scoring time apart from any
+  writing. Requests share the one-at-a-time rule of `/write`.
+- **`/write` switches.** `cache` and `fused` select the KV cache and fused attention. On the CPU in fp32
+  every combination writes identical text, as tested.
+- **The page** gains the two switches and a judge-mode panel: the options' probabilities as bars, an
+  "answers" or "not sure" badge with the confidence and the threshold it needed, and the fallback
+  continuation. Benchmark speeds appear only beside GPU runs, where they were measured.
+- **Tests.** Every switch combination writes the same story. Each model answers or abstains, and its
+  probabilities sum to one. A saved calibration is applied (a huge temperature evens the odds and forces
+  an abstention), and malformed requests get 422.

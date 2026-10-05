@@ -102,3 +102,40 @@ def test_the_page_and_the_model_list(app):
     client = TestClient(app)
     assert "hello-tokens playground" in client.get("/").text
     assert [m["name"] for m in client.get("/models").json()] == ["v1", "v2"]
+
+
+def test_the_cache_and_fused_switches_write_the_same_story(app):
+    client = TestClient(app)
+    texts = []
+    for switches in ({}, {"cache": True}, {"fused": True}, {"cache": True, "fused": True}):
+        events = stream(client, prompt="the cat", max_tokens=10, seed=4, **switches)
+        texts.append("".join(d["text"] for kind, d in events if kind in ("token", "done") and d["model"] == "v2"))
+    assert len(set(texts)) == 1  # fp32 on the CPU: identical text whatever the switches
+
+
+def test_the_judge_answers_or_abstains_for_every_model(app):
+    client = TestClient(app)
+    body = {"context": "the cat sat on the mat.", "options": ["the dog sat on the log.", "a café by the sea."]}
+    results = client.post("/judge", json=body).json()
+    assert [r["model"] for r in results] == ["v1", "v2"]
+    for r in results:
+        assert sum(r["probabilities"]) == pytest.approx(1.0)
+        assert r["confidence"] == pytest.approx(max(r["probabilities"]))
+        assert r["decision"] in ("answer", "abstain") and not r["calibrated"]  # no judge run for test models
+        assert (r["fallback"] is None) == (r["decision"] == "answer")
+
+
+def test_the_judge_uses_a_saved_calibration(app):
+    entry = app.state.models["v1"]
+    entry.judge = {"method": "mean", "temperature": 1e6, "threshold": 0.99}  # huge T: equal odds, so abstain
+    results = TestClient(app).post("/judge", json={"context": "the", "options": ["cat.", "dog.", "mat."],
+                                                   "fallback_tokens": 0}).json()
+    v1 = results[0]
+    assert v1["calibrated"] and v1["decision"] == "abstain" and v1["fallback"] is None
+    assert v1["probabilities"] == pytest.approx([1 / 3] * 3, abs=1e-4)
+
+
+def test_bad_judge_requests_are_refused(app):
+    client = TestClient(app)
+    assert client.post("/judge", json={"context": "x", "options": ["only one"]}).status_code == 422
+    assert client.post("/judge", json={"context": "x", "options": ["a", " "]}).status_code == 422

@@ -247,6 +247,7 @@ PLAYGROUND_MODELS = {"v1": "classic GPT", "v2": "modern: RoPE, RMSNorm, SwiGLU, 
 
 def run_play(args) -> int:
     """Load every trained model that exists, warm it up, and serve the playground on this machine only."""
+    import json
     import threading
     import webbrowser
 
@@ -266,8 +267,12 @@ def run_play(args) -> int:
         model = load_model(path, device).to(dtype)
         generate(model, tokenizer.encode("Once upon a time"), 8, seed=0)  # warm-up: start-up costs paid here
         row = benchmarks.get(f"{name} {'bf16' if dtype == torch.bfloat16 else 'fp32'}")
-        speed = next((p["tokens_per_s"] for p in row["points"] if p["new_tokens"] == 224), None) if row else None
-        models[name] = Entry(model, label, speed)
+        # Benchmark rows were measured on the GPU: only show one next to a GPU run.
+        speed = next((p["tokens_per_s"] for p in row["points"] if p["new_tokens"] == 224), None) \
+            if row and device == "cuda" else None
+        judge_file = Path("benchmarks") / "judge" / f"{name}.json"
+        judge = json.loads(judge_file.read_text(encoding="utf-8")) if judge_file.exists() else None
+        models[name] = Entry(model, label, speed, judge)
     if not models:
         print("no trained models found in checkpoints/: run `train` first")
         return 1

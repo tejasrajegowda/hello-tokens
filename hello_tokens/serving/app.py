@@ -5,7 +5,9 @@
   token  {"model", "text", "probability", "top": [[text, probability], ...], "ms"}
   done   {"model", "text", "reason"}   ("end": the model ended the story; "length": the limit)
 
-One GPU, so one story at a time: a second request while one is running gets 409.
+`POST /judge` scores given answer options in one pass per model; each model answers or abstains.
+
+One GPU, so one request at a time: a second request while one is running gets 409.
 """
 
 import codecs
@@ -21,7 +23,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from hello_tokens.generation.sampling import generate_stream
+from hello_tokens.generation.sampling import generate, generate_stream
+from hello_tokens.judge.questions import Question
+from hello_tokens.judge.scoring import score_options
 from hello_tokens.model.gpt import GPT
 from hello_tokens.tokenizer.tokenizer import Tokenizer
 
@@ -33,6 +37,7 @@ class Entry:
     model: GPT
     label: str  # what the page shows, e.g. "classic"
     benchmark_tokens_per_s: float | None = None  # the saved benchmark row, for comparison
+    judge: dict | None = None  # the judge run's settings: scoring method, temperature, threshold
 
 
 class WriteRequest(BaseModel):
@@ -41,6 +46,14 @@ class WriteRequest(BaseModel):
     top_p: float = Field(0.95, ge=0.05, le=1)
     max_tokens: int = Field(200, ge=1, le=400)
     seed: int | None = Field(None, ge=0, le=2**31 - 1)
+    cache: bool = False  # use the KV cache (same text, less work per token)
+    fused: bool = False  # use PyTorch's fused attention kernel (same text)
+
+
+class JudgeRequest(BaseModel):
+    context: str = Field("", max_length=4000)
+    options: list[str] = Field(min_length=2, max_length=8)
+    fallback_tokens: int = Field(40, ge=0, le=200)  # when abstaining, write this much instead (0: don't)
 
 
 class TextStream:
@@ -127,11 +140,13 @@ def create_app(models: dict[str, Entry], tokenizer: Tokenizer, device: str) -> F
                 yield event("start", {"seed": seed, "prompt_tokens": len(ids)})
                 streams, texts, counts = {}, {}, {}
                 for name, entry in models.items():
+                    entry.model.use_fused_attention(request.fused)
                     # Each model gets its own random generator with the same seed, so one model's
                     # draws never change the other's story.
                     generator = torch.Generator(device=device).manual_seed(seed)
                     streams[name] = generate_stream(entry.model, ids, request.max_tokens, request.temperature,
-                                                    None, request.top_p, end_id, generator, details=True)
+                                                    None, request.top_p, end_id, generator, details=True,
+                                                    cache=request.cache)
                     texts[name], counts[name] = TextStream(tokenizer), 0
                 active = list(models)
                 while active:
@@ -155,5 +170,50 @@ def create_app(models: dict[str, Entry], tokenizer: Tokenizer, device: str) -> F
                 app.state.busy.finish()  # also runs if the page is closed mid-story
 
         return StreamingResponse(events(), media_type="text/event-stream")
+
+    @app.post("/judge")
+    def judge(request: JudgeRequest) -> list[dict]:
+        """Each model scores the options in one pass, then answers if its calibrated confidence reaches the
+        threshold from its judge run, and otherwise abstains (and writes a continuation instead)."""
+        if any(not option.strip() or len(option) > 500 for option in request.options):
+            raise HTTPException(422, "options must be non-empty and at most 500 characters")
+        if not app.state.busy.try_start():
+            raise HTTPException(409, "the models are busy; try again in a moment")
+        try:
+            question = Question(request.context, request.options, 0)  # the answer is unknown here
+            results = []
+            for name, entry in models.items():
+                settings = entry.judge or {}
+                method = settings.get("method", "summed")
+                temperature = settings.get("temperature", 1.0)
+                threshold = settings.get("threshold", 0.9)
+                started = time.perf_counter()
+                try:
+                    judgement = score_options(entry.model, tokenizer, question)
+                except ValueError as error:
+                    raise HTTPException(422, str(error))
+                probabilities = judgement.probabilities(method, temperature)
+                confidence, choice = probabilities.max(dim=0)
+                scoring_ms = (time.perf_counter() - started) * 1000  # the judging itself, not the fallback
+                answering = float(confidence) >= threshold
+                fallback = None
+                if not answering and request.fallback_tokens:
+                    ids = (tokenizer.encode(request.context) or [end_id])[-context:]
+                    fallback = tokenizer.decode(generate(entry.model, ids, request.fallback_tokens, temperature=0,
+                                                         stop_id=end_id, cache=True))
+                results.append({
+                    "model": name,
+                    "probabilities": probabilities.tolist(),
+                    "choice": int(choice),
+                    "confidence": float(confidence),
+                    "decision": "answer" if answering else "abstain",
+                    "threshold": threshold,
+                    "calibrated": entry.judge is not None,
+                    "ms": scoring_ms,
+                    "fallback": fallback,
+                })
+            return results
+        finally:
+            app.state.busy.finish()
 
     return app
