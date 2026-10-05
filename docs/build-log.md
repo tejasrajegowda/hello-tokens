@@ -400,3 +400,26 @@ What was built, in order, and why.
   parameters, about 12% of v2, with the same vocabulary and context. It uses the classic parts on purpose:
   its step cost is also launch overhead, and LayerNorm (one fused kernel) and a learned position table
   launch fewer kernels than RMSNorm and RoPE. `train --model draft` trains it (next GPU session).
+
+## 23. Speculative decoding
+
+- **The algorithm** (`hello_tokens/generation/speculative.py`; Leviathan et al., 2023; Chen et al.,
+  2023). Each round the draft model writes *k* guesses one at a time; the target reads all of them in one
+  pass, which costs about one ordinary step. Guess *i* is kept with probability min(1, p/q), using the
+  two models' filtered distributions. At the first rejection a replacement is drawn from max(0, p − q),
+  renormalised. If every guess is kept, the target's last distribution gives one more token.
+- **Caches.** Each model keeps a KV cache, tracked as a stretch of the text starting at a shared offset;
+  after each round both roll back past the guesses that were not kept (the target read all *k*, the
+  draft *k* − 1). When a round would not fit in the context, both restart from the last three quarters.
+- **Correctness.** The rule makes every token follow the target's distribution exactly. Tests (fp32, CPU):
+  - With greedy decoding the output equals ordinary greedy writing, token for token, for v1- and
+    v2-shaped targets with a different draft, at *k* = 1 and 4.
+  - Over 4,000 samples the first and second tokens' frequencies match the target's exact probabilities
+    within 0.03.
+  - A sabotaged rule that always keeps the guesses fails that test.
+  - A draft identical to the target is never rejected.
+  - Limits and the stop token are respected.
+
+  On the real checkpoints, v2 with v1 as the draft writes greedily exactly what v2 writes alone, and
+  keeps 97% of v1's guesses.
+- **`bench --speculative DRAFT --k K`** measures it once the draft model is trained.

@@ -18,6 +18,7 @@ from hello_tokens.tokenizer.tokenizer import Tokenizer
 from hello_tokens.generation.power import opt_out_of_power_throttling
 from hello_tokens.generation.profile_step import profile_steps
 from hello_tokens.generation.sampling import generate
+from hello_tokens.generation.speculative import speculative_stream
 from hello_tokens.training.run import TrainConfig, load_model, train
 
 
@@ -79,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
     bench.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
     bench.add_argument("--cache", action="store_true", help="use the KV cache")
     bench.add_argument("--fused", action="store_true", help="use PyTorch's fused attention kernel")
+    bench.add_argument("--speculative", metavar="DRAFT", help="speculative decoding with this draft checkpoint")
+    bench.add_argument("--k", type=int, default=4, help="tokens drafted per round (speculative)")
     bench.add_argument("--skip-quality", action="store_true", help="don't compute held-out perplexity")
     bench.add_argument("--table", action="store_true", help="only print the table of saved rows")
     bench.add_argument("--data-dir", type=Path, default=Path("data"))
@@ -147,14 +150,24 @@ def run_bench(args) -> int:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = load_model(Path("checkpoints") / f"{args.name}.pt", device).to(getattr(torch, args.dtype))
         model.use_fused_attention(args.fused)
-        setup = Setup(args.name, args.dtype, cache="kv" if args.cache else "none",
-                      attention="fused" if args.fused else "ours")
+        setup = Setup(args.name, args.dtype, cache="kv" if args.cache or args.speculative else "none",
+                      attention="fused" if args.fused else "ours",
+                      decoding=f"speculative ({args.speculative}, k={args.k})" if args.speculative else "normal")
         # The row's name lists what differs from the plain model, e.g. "v2 bf16 cache fused".
         row = " ".join([args.name, "fp32" if args.dtype == "float32" else "bf16"]
-                       + ["cache"] * args.cache + ["fused"] * args.fused)
+                       + ["cache"] * args.cache + ["fused"] * args.fused
+                       + ([f"spec-k{args.k}"] if args.speculative else []))
         print(f"benchmarking {row} on {device}", flush=True)
-        result = run_benchmark(row, setup, model, lambda prompt, n: generate(
-            model, prompt, n, temperature=0, stop_id=None, cache=args.cache), device)
+        write = lambda prompt, n: generate(model, prompt, n, temperature=0, stop_id=None, cache=args.cache)
+        stats: dict = {}
+        if args.speculative:
+            draft = load_model(Path("checkpoints") / f"{args.speculative}.pt", device).to(getattr(torch, args.dtype))
+            draft.use_fused_attention(args.fused)
+            write = lambda prompt, n: [s.id for s in speculative_stream(
+                model, draft, prompt, n, temperature=0, stop_id=None, k=args.k, stats=stats)]
+        result = run_benchmark(row, setup, model, write, device)
+        if stats:
+            print(f"draft tokens accepted: {stats['accepted'] / stats['drafted']:.1%}")
         if not args.skip_quality:
             tokens = load_tokens(args.data_dir / "tokens" / "valid.bin")
             result.perplexity = perplexity(model, tokens, device=device).perplexity
