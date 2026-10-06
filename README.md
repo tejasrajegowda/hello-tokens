@@ -18,7 +18,7 @@ remaining step is measuring them all on the GPU. Each step is recorded in
 **The book.** [docs/book/](docs/book/README.md) teaches the project step by step, for a reader who
 knows Python but not machine learning: the idea, the real code, the test that proves it, and the
 numbers it produced. A test keeps every code excerpt identical to the repository. Part I (building
-v1) is being written now.
+v1) is complete; Part II (making it fast) follows the final measurements.
 
 ## Results (v1)
 
