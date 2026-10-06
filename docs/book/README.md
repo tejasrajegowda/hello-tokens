@@ -16,11 +16,11 @@ command no longer exists. Every number comes from a file committed alongside the
 
 1. [Setup and the data](01-setup-and-the-data.md)
 2. [A tokenizer from scratch: byte-pair encoding](02-byte-pair-encoding.md)
-3. Tokenizing real stories, and the token files
+3. [Tokenizing real stories, and the token files](03-real-text-and-token-files.md)
 4. Embeddings and attention
 5. The block and the full model
-6. The learning loop
-7. The real training run
+6. [The learning loop](06-the-learning-loop.md)
+7. [The real training run](07-the-real-training-run.md)
 8. Writing: sampling
 9. Measuring it: perplexity
 

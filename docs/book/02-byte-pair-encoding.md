@@ -389,4 +389,4 @@ which averages 3.96 bytes of text per token.
 
 </details>
 
-Next: 3. Tokenizing real stories, and the token files
+Next: [3. Tokenizing real stories, and the token files](03-real-text-and-token-files.md)
