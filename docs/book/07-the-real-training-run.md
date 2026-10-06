@@ -481,4 +481,4 @@ The story ends because the model produced the end-of-story token from chapter 3 
 
 </details>
 
-Next: 8. Writing: sampling
+Next: [8. Writing: sampling](08-writing-sampling.md)

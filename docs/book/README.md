@@ -17,12 +17,12 @@ command no longer exists. Every number comes from a file committed alongside the
 1. [Setup and the data](01-setup-and-the-data.md)
 2. [A tokenizer from scratch: byte-pair encoding](02-byte-pair-encoding.md)
 3. [Tokenizing real stories, and the token files](03-real-text-and-token-files.md)
-4. Embeddings and attention
-5. The block and the full model
+4. [Embeddings and attention](04-embeddings-and-attention.md)
+5. [The block and the full model](05-the-block-and-the-full-model.md)
 6. [The learning loop](06-the-learning-loop.md)
 7. [The real training run](07-the-real-training-run.md)
-8. Writing: sampling
-9. Measuring it: perplexity
+8. [Writing: sampling](08-writing-sampling.md)
+9. [Measuring it: perplexity](09-measuring-it-perplexity.md)
 
 ## Part II: Make it fast
 
@@ -30,4 +30,4 @@ Profiling one step, the benchmark harness, the modern parts (RMSNorm, RoPE, SwiG
 attention, one chapter each), training v2, the KV cache, fused attention, CUDA graphs, quantization,
 speculative decoding, calibration, judge mode, serving, and the results.
 
-Chapters without a link are still being written.
+Part II is written once its measurements are final.

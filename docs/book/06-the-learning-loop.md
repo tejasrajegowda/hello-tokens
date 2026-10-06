@@ -5,8 +5,9 @@ predicts is close to a uniform guess. Learning is the process that changes those
 a time, until the predictions match real text. This chapter builds that process: how training
 examples are cut from the token files, how a prediction is scored, how every number in the model is
 nudged to make the score better, and how large each nudge should be. It ends with the most useful
-test in deep learning, a proof that the whole loop really learns. Chapters 4 and 5 build the model
-itself; this chapter needs only what the model takes in and what it gives back.
+test in deep learning, a proof that the whole loop really learns.
+[Chapters 4](04-embeddings-and-attention.md) and [5](05-the-block-and-the-full-model.md) build the
+model itself; this chapter needs only what the model takes in and what it gives back.
 
 **Code:** [`hello_tokens/training/batches.py`](../../hello_tokens/training/batches.py) ·
 [`hello_tokens/training/optimize.py`](../../hello_tokens/training/optimize.py)
@@ -36,10 +37,11 @@ itself; this chapter needs only what the model takes in and what it gives back.
   things this project does not write by hand.
 - **Optimizer**: the rule that turns gradients into updates of the parameters.
 - **Learning rate**: how large a step the optimizer takes. **Step**: one update of all parameters.
-- **Width**, **layer**, **head**: the three numbers that set the model's size, built in chapters 4
-  and 5. The width is how many numbers represent each token inside the model. A layer is one
-  repeated processing block, and the model stacks several. A head is one of the parallel parts of
-  attention, the step in which each position gathers information from earlier positions.
+- **Width**, **layer**, **head**: the three numbers that set the model's size, built in
+  [chapters 4](04-embeddings-and-attention.md) and [5](05-the-block-and-the-full-model.md). The
+  width is how many numbers represent each token inside the model. A layer is one repeated
+  processing block, and the model stacks several. A head is one of the parallel parts of attention,
+  the step in which each position gathers information from earlier positions.
 
 ## The idea
 
@@ -126,7 +128,8 @@ inputs, targets = get_batch(tokens, batch_size=2, context=8, generator=np.random
 
 For all 256 predictions in a window to be honest, the model must not be able to see the answer. The
 prediction at position 0 must be made from token 0 alone, even though token 1 is sitting in the same
-input row. That is why the model's attention, built in chapter 4, is **causal**: each position can
+input row. That is why the model's attention, built in
+[chapter 4](04-embeddings-and-attention.md), is **causal**: each position can
 look only at itself and the positions before it.
 
 ### Measuring wrongness: cross-entropy
@@ -273,7 +276,7 @@ very large numbers.
 The parameters are split by their number of dimensions. The matrices, which hold almost all the
 parameters and do the real computation, are decayed. The 1-D vectors are not: these are biases, small
 offsets added after a matrix product, and the scale and shift of the normalization layers that
-chapter 5 builds to keep each layer's numbers in a stable range. Pulling a normalization scale towards
+[chapter 5](05-the-block-and-the-full-model.md) builds to keep each layer's numbers in a stable range. Pulling a normalization scale towards
 zero would shrink the signal through its layer, and a bias has no reason to be near zero.
 
 ### How large a step: the schedule

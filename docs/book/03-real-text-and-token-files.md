@@ -622,4 +622,4 @@ uv run pytest tests/tokenizer tests/corpus
 
 </details>
 
-Next: 4. Embeddings and attention
+Next: [4. Embeddings and attention](04-embeddings-and-attention.md)
