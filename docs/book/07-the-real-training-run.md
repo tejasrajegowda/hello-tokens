@@ -221,9 +221,9 @@ saved ones and the step counter jumps to where the run stopped. If there is no c
 a log, the log belongs to a run that never reached its first checkpoint; it is renamed out of the way
 rather than deleted, and the new run starts a clean log.
 
-> **Later:** the lines cut from this excerpt refuse to resume a checkpoint whose model shape differs
-> from the one requested. Part II adds that check, when the project starts training models of more
-> than one shape.
+> **Later:** the lines cut from this excerpt are already in `train`: they refuse to resume a
+> checkpoint whose model shape differs from the one requested. They matter once Part II trains a
+> second shape.
 
 <!-- from: hello_tokens/training/run.py -->
 ```python
@@ -242,7 +242,9 @@ rather than deleted, and the new run starts a clean log.
 
 The batches come from a random generator seeded with `config.seed + step`. A fresh run starts at
 seed 0; a run resumed at step 7,000 uses seed 7,000. Had the seed been the same, a resumed run would
-draw again the very batches it had trained on before the interruption.
+start a fresh generator at seed 0 and draw again the batches from the start of the run. The new seed
+avoids that replay. It does not recreate the exact batches an uninterrupted run would have drawn,
+and `started` is set after the load, so the log's `seconds` column restarts from zero on a resume.
 
 The loop itself is three lines of chapter 6: look up the learning rate for this step, cut a batch,
 take a step. Each step's training loss is appended to `recent`.
@@ -328,20 +330,15 @@ if args.command == "train":
 
 ## What would go wrong the other way
 
-**Watching only the training loss.** A model that memorizes its training text shows a training loss
-that keeps falling. Without the held-out curve beside it, memorizing and learning look the same.
+**Watching only the training loss.** Memorizing and learning would look the same.
 
-**Different held-out batches each time.** Each evaluation would measure a different sample of text,
-and part of the difference between two reports would come from the sample rather than the
-model. Fixed batches make the curve a measurement of the model alone.
+**Different held-out batches each time.** Part of the change between two reports would come from the
+sample of text rather than the model.
 
-**Saving only the parameters.** A run resumed without AdamW's running averages would restart them
-from zero, at full learning rate and with no warm-up: exactly the situation warm-up exists to avoid.
-The loss could jump at every resume. Saving the optimizer's state makes a resumed run continue as if
-it had never stopped.
+**Saving only the parameters.** AdamW's running averages would restart from zero at full learning rate
+with no warm-up, and the loss could jump at every resume.
 
-**The same seed on every resume.** The resumed run would repeat the batches it trained on just before
-the interruption, seeing that text twice and some other text never.
+**The same seed on every resume.** Each resume would replay the batches from the start of the run.
 
 **32-bit arithmetic throughout.** Every intermediate result inside the model would take twice the
 memory, and the matrix products would not use the GPU's fast 16-bit units. No 32-bit training run was made for comparison,
@@ -416,10 +413,11 @@ uv run pytest tests/training
 ```
 
 Once a checkpoint exists, the model can write. Sampling is the subject of chapter 8, but the command
-is already there:
+is already there. The README gives this form for reproducing its samples, with a prompt and a seed
+for the random choices:
 
 ```
-uv run python -m hello_tokens write "Once upon a time"
+uv run python -m hello_tokens write "The little bird was sad because" --seed 3
 ```
 
 ## What we got
@@ -443,9 +441,11 @@ The run's chart, drawn by `save_chart` from the run's log:
   most of them taken while the model was still close to random, whereas the held-out figure is
   measured at step 500 itself.
 - **An independent check.** Chapter 9 scores every one of the 5,683,947 held-out tokens in 32-bit
-  arithmetic and finds a loss of 1.2866, agreeing with the 1.286 measured on the 50 fixed batches.
+  arithmetic (the file holds 5,683,948, but the first has nothing before it to predict it from) and finds a loss of 1.2866, agreeing with the 1.286 measured on the 50 fixed batches.
 - **A model that writes.** The README shows stories written by this checkpoint, sampled at
-  temperature 0.8 and top-p 0.95, settings that chapter 8 explains. One, from the prompt in bold:
+  temperature 0.8 and top-p 0.95. These two settings control how adventurous the sampling is, how
+  far it strays from the most likely next token; chapter 8 explains them. One, from the prompt in
+  bold, written with the command above (seed 3):
 
 > **The little bird was sad because** it did not have any friends. It asked the big bear for help. The
 > big bear wanted to help the little bird. They both decided to play a game. The game was to roll down
@@ -473,7 +473,8 @@ The story ends because the model produced the end-of-story token from chapter 3 
 2. AdamW's running averages of each parameter's gradients and squared gradients would start again from
    zero, with the learning rate still at its current, possibly peak, value and no warm-up. The early
    steps after a resume would be badly scaled, and the loss would jump. With the state saved, the
-   resumed run behaves exactly as if it had not stopped.
+   optimizer and the learning rate continue exactly where they stopped. The batches and the log's
+   `seconds` clock do not: the resumed run draws from a new seed, and its clock starts again.
 3. So that every evaluation measures the same 50 batches. Then a difference between two reports is a
    difference in the model, not in the sample of text. Drawing from the training generator would also
    change which training batches come next, so measuring would alter the run being measured.

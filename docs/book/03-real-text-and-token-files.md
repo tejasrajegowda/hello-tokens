@@ -89,26 +89,18 @@ END_OF_TEXT = "<|endoftext|>"
 SPLIT = re.compile(r" ?[^\W\d_]+| ?\d+| ?[^\s\w]+| ?_+|\s+(?!\S)|\s+")
 ```
 
-The pattern is six alternatives separated by `|`. At each point in the text, the regular-expression
-engine tries them from left to right and takes the first that matches:
+The alternatives, separated by `|`, are tried from left to right at each point in the text, and the
+first that matches wins. In plain terms they describe a word with its leading space (letters in any
+alphabet), a number, a run of symbols such as punctuation or quotation marks, a run of underscores,
+and whitespace.
 
-1. `" ?[^\W\d_]+"`: an optional space, then one or more letters. `\W` means "not a word character",
-   `\d` a digit, and `_` an underscore; a class `[^...]` matches anything *not* listed. A character that
-   is not a non-word character, not a digit and not an underscore is exactly a letter, in any
-   alphabet. So `" dog"`, space included, is one chunk.
-2. `" ?\d+"`: an optional space, then digits, such as `" 42"`.
-3. `" ?[^\s\w]+"`: an optional space, then a run of characters that are neither whitespace nor word
-   characters: punctuation, quotation marks, emoji.
-4. `" ?_+"`: underscores, which Python counts as word characters and which would otherwise match none
-   of the branches above.
-5. `"\s+(?!\S)"`: a run of whitespace, with a condition. `(?!\S)` is a *lookahead*: it checks, without
-   consuming anything, that the next character is not a non-space. If a word follows the run, the
-   engine gives back the run's last space, so that space can begin the word's chunk.
-6. `"\s+"`: any whitespace left over.
+Only the whitespace branch needs a closer look. In `"  two  spaces"`, the branch `\s+(?!\S)` first
+takes both leading spaces, because `\s+` is *greedy*: it takes as much as it can. Then the
+*lookahead* `(?!\S)` checks, without consuming anything, that no non-space character comes next. It
+fails, since `t` comes next, so the engine gives one space back. Now a space comes next, the check
+passes, and the first chunk is a single space. The second space is left to start `" two"`.
 
-Every character in any text is a letter, a digit, a symbol, an underscore or whitespace, so every
-character is matched by exactly one branch. Nothing is dropped and nothing is matched twice, which
-means the chunks always join back into the original text.
+Every character is matched exactly once, so the chunks always join back into the original text.
 
 <!-- from: hello_tokens/tokenizer/tokenizer.py -->
 ```python
@@ -362,7 +354,9 @@ How large should the sample be? The build log records a measurement. The full vo
 on samples of 5, 10 and 20 MB, taking 114, 113 and 156 seconds, and all three compressed held-out
 text to the same 3.95 bytes per token: 5 MB of a child's vocabulary already covers it. The project
 still uses 20 MB, the default of `prepare --sample-mb`, because training happens once and a larger
-sample gives rarer words a better chance of being learned.
+sample gives rarer words a better chance of being learned. The 156 seconds come from that
+sample-size measurement; `prepare`'s own run on 20 MB took 197 seconds, as shown under "Run it".
+These are two separate runs, and timings vary from one run to the next.
 
 ### The token files
 
@@ -592,12 +586,13 @@ uv run pytest tests/tokenizer tests/corpus
   trained on 20 MB of stories in 197 seconds and saved as plain text in `data/tokenizer.bpe`. A
   typical sentence encodes to one token per word.
 - **The training file:** 562,963,642 tokens in `data/tokens/train.bin`, 1.13 GB, exactly two bytes per
-  token, encoded in 435 seconds at about 5.2 MB of text per second on one CPU core. The 2.2 GB of text
+  token, encoded in 435 seconds on one CPU core. The 2.2 GB of text
   became about half that in tokens.
 - **The held-out file:** 5,683,948 tokens in `data/tokens/valid.bin`, about 11.4 MB.
 - **Compression:** 3.96 bytes of text per token over the whole corpus, matching the 3.95 measured on
   held-out samples when choosing the sample size. The model will read roughly a quarter as many
-  pieces as there are bytes of text, so more of a story fits in the 256 tokens it sees at once.
+  pieces as there are bytes of text, so more of a story fits in the model's **context**: the at most
+  256 tokens it reads at a time, set in chapter 4's configuration and used in chapters 6 and 7.
 - **A check on the files:** the largest id in both is 4,095, the special token. Nothing lies outside
   the vocabulary.
 

@@ -138,8 +138,8 @@ dividing by 2<sup>30</sup> converts bytes to gibibytes.
 
 The next two lines are the heart of the check. `torch.randn(1024, 1024, device="cuda")` creates a
 square tensor of random numbers directly in GPU memory, and `matrix @ matrix` multiplies it by
-itself. Matrix multiplication is the operation a neural network spends nearly all its time on, so it
-is the right thing to test.
+itself. The model built in later chapters is made mostly of matrix products, so running one is the
+right thing to test.
 
 The call to `.item()` is the subtle part. GPU work in PyTorch is *asynchronous*: when Python asks for
 a matrix product, PyTorch queues the work on the GPU and returns immediately, without waiting for
@@ -483,9 +483,10 @@ uv run pytest tests/test_main.py tests/corpus/test_download.py
 - Two files in `data/raw/`: `TinyStoriesV2-GPT4-train.txt`, 2,227,753,162 bytes (2.23 GB), for
   training, and `TinyStoriesV2-GPT4-valid.txt`, 22,502,601 bytes (22.5 MB), held out for
   evaluation.
-- A downloader that streams in 1 MiB pieces, resumes with HTTP range requests over up to 20
-  attempts, and was exercised for real: the first download dropped at 622 MB and was caught by the
-  size check.
+- A downloader that streams in 1 MiB pieces and resumes with HTTP range requests over up to 20
+  attempts. Its size check was exercised for real: the first download, made by the earlier version
+  that could only start over, dropped at 622 MB and was caught by that check. Resuming was added
+  afterwards, and the tests prove it.
 
 ## Check yourself
 

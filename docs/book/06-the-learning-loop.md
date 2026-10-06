@@ -23,7 +23,9 @@ itself; this chapter needs only what the model takes in and what it gives back.
   not probabilities yet: they can be any size, negative included, and do not sum to one.
 - **Softmax**: the function that turns scores into probabilities: raise *e* to each score, then
   divide each result by their total. The largest score gets the largest probability, and the
-  probabilities sum to one.
+  probabilities sum to one. *e* is the mathematical constant, about 2.718.
+- **ln**: the natural logarithm, the logarithm with base *e*, the inverse of raising *e* to a
+  power. In Python it is `math.log`; for example `math.log(4096)` is about 8.32.
 - **Batch**: several training examples processed together, as one tensor.
 - **Loss**: a single number measuring how wrong the predictions were. Training tries to make it small.
 - **Gradient**: for each parameter, how much the loss would change if that parameter were increased a
@@ -34,6 +36,10 @@ itself; this chapter needs only what the model takes in and what it gives back.
   things this project does not write by hand.
 - **Optimizer**: the rule that turns gradients into updates of the parameters.
 - **Learning rate**: how large a step the optimizer takes. **Step**: one update of all parameters.
+- **Width**, **layer**, **head**: the three numbers that set the model's size, built in chapters 4
+  and 5. The width is how many numbers represent each token inside the model. A layer is one
+  repeated processing block, and the model stacks several. A head is one of the parallel parts of
+  attention, the step in which each position gathers information from earlier positions.
 
 ## The idea
 
@@ -219,8 +225,9 @@ gradients to whatever is already stored, so without this line every step would u
 gradients so far.
 
 `loss.backward()` is backpropagation. PyTorch recorded every operation that produced the loss, from
-the token ids through the whole model, and now runs that record backwards, applying the chain rule of
-calculus at each operation. When it finishes, every parameter `p` has its gradient in `p.grad`.
+the token ids through the whole model, and now runs that record backwards. Each operation knows how
+its output changes when its inputs change; backpropagation multiplies those answers together, from
+the loss back to every parameter. When it finishes, every parameter `p` has its gradient in `p.grad`.
 
 `nn.utils.clip_grad_norm_(model.parameters(), clip)` is a safety rail. It measures the length, the
 **norm**, of all the gradients taken together as one long vector. If it exceeds `clip` (1.0), every
@@ -415,11 +422,27 @@ CPU in seconds:
 uv run pytest tests/training/test_training.py
 ```
 
-The memorize test can also be watched in a Python session started with `uv run python`. With the test's
-model, data and seeds, printing the loss every 50 steps gives:
+The memorize test can also be watched in a Python session started with `uv run python`. The session
+below rebuilds the test's model, data and seeds; `torch.manual_seed(0)` is the seed the test file sets
+before every test. Run on a CPU, printing the loss every 50 steps gives:
 
 <!-- illustration -->
 ```python
+import numpy as np
+import torch
+
+from hello_tokens.model.config import ModelConfig
+from hello_tokens.model.gpt import GPT
+from hello_tokens.training.batches import get_batch
+from hello_tokens.training.optimize import make_optimizer, train_step
+
+TINY = ModelConfig(vocab_size=64, context=16, width=32, layers=2, heads=4)
+torch.manual_seed(0)
+model = GPT(TINY)
+optimizer = make_optimizer(model, learning_rate=3e-3)
+tokens = np.random.default_rng(0).integers(0, TINY.vocab_size, 1000).astype(np.uint16)
+inputs, targets = get_batch(tokens, 4, TINY.context, np.random.default_rng(1))
+
 for step in range(1, 151):
     loss = train_step(model, optimizer, inputs, targets, learning_rate=3e-3)
     if step in (1, 50, 100, 150):
