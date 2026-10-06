@@ -64,7 +64,7 @@ def steps() -> list[tuple[str, list[str]]]:
     # Where the time of one v2 step goes in each way of running it (printed to the log, not saved as rows).
     for mode in ("full", "cache", "graphs"):
         plan.append((f"bench-profile v2 {mode}", ["profile", "--name", "v2", *BF16, "--mode", mode]))
-    plan.append(("report", ["report"]))
+    plan.append(("bench-report", ["report"]))  # under "bench", so --redo bench rebuilds the tables
     return plan
 
 
