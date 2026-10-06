@@ -551,6 +551,14 @@ What was built, in order, and why.
   with int8 weights. On the real v1 and v2 checkpoints both write the same 300-token story. A further
   test compares a replayed graph with the ordinary step on the GPU; it runs, with the speed measurement,
   in the next GPU session.
+- **`profile --mode`** profiles the three ways a generation step can run. `full` (the default, unchanged)
+  re-reads a window of `context` tokens; `cache` feeds one token at position `context - 1` to a KV cache
+  holding the earlier tokens; `graphs` runs that one-token step through the recorded `OneTokenStep`.
+  Every timed step is followed by a rollback to `context - 1`, so each one measures the same position,
+  and all three modes read the same random windows, which the tests check by comparing their logits.
+  The kernel count shows how many launches the graph removes. Depending on the CUDA profiling backend,
+  the profiler may report replayed kernels individually or not at all, so wall time is the primary
+  measure in `graphs` mode.
 
 ## 29. The benchmark report
 

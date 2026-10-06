@@ -79,6 +79,9 @@ def main(argv: list[str] | None = None) -> int:
     profile_cmd = commands.add_parser("profile", help="where the time of one generation step goes")
     profile_cmd.add_argument("--name", default="v1", help="which run's checkpoint to use")
     profile_cmd.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
+    profile_cmd.add_argument("--mode", default="full", choices=["full", "cache", "graphs"],
+                             help="re-read the whole window, feed one token to the KV cache, or replay "
+                                  "that one-token step as a CUDA graph")
     bench = commands.add_parser("bench", help="measure generation speed on the fixed workload; save a row")
     bench.add_argument("--name", default="v1", help="which run's checkpoint to use")
     bench.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
@@ -118,9 +121,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "profile":
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = load_model(Path("checkpoints") / f"{args.name}.pt", device).to(getattr(torch, args.dtype))
-        print(f"{args.name}, {args.dtype}, {device}: one generation step (forward pass + sampling)")
+        print(f"{args.name}, {args.dtype}, {device}, mode {args.mode}: one generation step (forward pass + sampling)")
         print(" context   wall ms  (spread)   GPU busy ms   kernels   GPU idle")
-        for r in profile_steps(model, contexts=[16, 64, 128, 256]):
+        for r in profile_steps(model, contexts=[16, 64, 128, 256], mode=args.mode):
             print(f"{r.context:>8}  {r.wall_ms:8.2f}  ({r.spread_ms:5.2f})  {r.gpu_busy_ms:12.2f}"
                   f"  {r.kernels:8.0f}  {r.gpu_idle_fraction:8.0%}")
         return 0
