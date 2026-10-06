@@ -1,3 +1,6 @@
+import gc
+import weakref
+
 import pytest
 import torch
 
@@ -95,6 +98,28 @@ def test_the_step_is_made_once_and_reused_until_the_attention_kernel_changes():
     again = one_token_step(model)
     assert again is first and again.cache.length == 0  # reused, and emptied for the new story
     model.use_fused_attention(True)
+    assert one_token_step(model) is not first
+
+
+def test_a_recorded_step_does_not_keep_its_model_alive():
+    model = model_for("v1")
+    one_token_step(model)
+    alive = weakref.ref(model)
+    del model
+    gc.collect()
+    assert alive() is None
+
+
+@pytest.mark.parametrize("change", ["quantize", "precision round trip"])
+def test_moving_the_weights_makes_a_new_step(change):
+    # A graph replays reads from the weights' old addresses; after a change it must not be reused.
+    model = model_for("v1")
+    first = one_token_step(model)
+    old = [p.data for p in model.parameters()]  # held, so the new weights can't reuse their addresses
+    if change == "quantize":
+        quantize_model(model, 8)
+    else:
+        model.to(torch.bfloat16).to(torch.float32)
     assert one_token_step(model) is not first
 
 

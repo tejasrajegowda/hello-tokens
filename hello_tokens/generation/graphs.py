@@ -11,8 +11,9 @@ token, which position) must live in a tensor whose memory is reused. GPT.decode_
 way. Before each replay the new token and position are copied into the recorded input tensors, and
 after it the logits are read from the recorded output tensor.
 
-The recording is made once per model (and per precision and attention kernel) and reused by every later
-story: its KV cache is emptied by moving the pointer back to 0, never reallocated.
+The recording is made once per model and attention kernel, made again whenever the weights move in memory
+(a precision switch, quantization), and reused by every later story: its KV cache is emptied by moving
+the pointer back to 0, never reallocated.
 
 `torch.compile(mode="reduce-overhead")` would do the same automatically, but it needs Triton, which
 this Windows setup doesn't have; recording by hand needs nothing extra and shows how it works.
@@ -33,7 +34,9 @@ class OneTokenStep:
     """
 
     def __init__(self, model: GPT, warmup: int = 3):
-        self.model = model
+        # A weak reference: the step is stored per model (below), and a strong one would keep the model,
+        # and with it the recording and its cache, alive for as long as the program runs.
+        self.model = weakref.ref(model)
         self.cache = model.new_cache()
         device = self.cache.keys.device
         # The recorded inputs: copy the next token and its position in here before each replay.
@@ -69,24 +72,29 @@ class OneTokenStep:
             self.graph.replay()
             logits = self.logits
         else:
-            logits = self.model.decode_step(self.ids, self.position, self.cache)
+            logits = self.model().decode_step(self.ids, self.position, self.cache)
         self.cache.advance(1)
         return logits[0]
 
 
-# One recorded step per model, per precision and attention kernel: switching either changes which
-# operations run, so a recording made before the switch would be wrong. Weak references let a model and
-# its recording be freed together.
+# One recorded step per model and attention kernel (switching the kernel changes which operations run).
+# Weak references let a model and its recordings be freed together.
 _steps: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _weight_addresses(model: GPT) -> tuple[int, ...]:
+    """Where every weight and buffer lives in memory. A recording reads the weights from these exact
+    addresses, so a change of precision, a move to another device, or quantization (anything that puts
+    the weights somewhere else) makes it stale: replaying it would read memory that may have been freed."""
+    return tuple(t.data_ptr() for t in (*model.parameters(), *model.buffers()))
 
 
 def one_token_step(model: GPT) -> OneTokenStep:
     """The recorded step for this model in its current state, made on first use and then reused."""
-    weight = model.output.weight
-    key = (weight.dtype, weight.device, model.blocks[0].attention.fused)
     per_model = _steps.setdefault(model, {})
-    if key not in per_model:
-        per_model[key] = OneTokenStep(model)
-    step = per_model[key]
+    fused, addresses = model.blocks[0].attention.fused, _weight_addresses(model)
+    if fused not in per_model or per_model[fused][0] != addresses:
+        per_model[fused] = (addresses, OneTokenStep(model))  # replaces (and frees) a stale recording
+    step = per_model[fused][1]
     step.cache.rollback(0)  # a new story: forget the last one
     return step
