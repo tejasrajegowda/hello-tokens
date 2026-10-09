@@ -26,8 +26,19 @@ command no longer exists. Every number comes from a file committed alongside the
 
 ## Part II: Make it fast
 
-Profiling one step, the benchmark harness, the modern parts (RMSNorm, RoPE, SwiGLU and grouped-query
-attention, one chapter each), training v2, the KV cache, fused attention, CUDA graphs, quantization,
-speculative decoding, calibration, judge mode, serving, and the results.
-
-Part II is written once its measurements are final.
+10. [Profiling one step](10-profiling-one-step.md)
+11. [The benchmark harness](11-the-benchmark-harness.md)
+12. RMSNorm
+13. Rotary position embedding
+14. SwiGLU
+15. Grouped-query attention
+16. Ablations, and training v2
+17. The KV cache
+18. Fused attention
+19. CUDA graphs
+20. int8 and int4 quantization
+21. Speculative decoding
+22. Calibration
+23. Judge mode
+24. Serving
+25. The results

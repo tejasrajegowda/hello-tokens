@@ -404,4 +404,4 @@ than one; with its weights zeroed it is a uniform guess, and scores the vocabula
 
 </details>
 
-Next: Part II, 10. Profiling one step
+Next: [10. Profiling one step](10-profiling-one-step.md)
