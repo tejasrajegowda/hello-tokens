@@ -44,8 +44,8 @@ def speed_table(results: list[dict]) -> str:
     names = [f"{p}+{n}" for p, n in POINTS]
     lines = [
         "| Row | " + " | ".join(f"tok/s {n}" for n in names)
-        + " | Speed-up | First token ms | ms / token | Size MB | Peak MB | Perplexity | ECE |",
-        "|---|" + "---:|" * (len(POINTS) + 7),
+        + " | Speed-up | Batch IQR | First token ms | ms / token | Size MB | Peak MB | Perplexity | ECE |",
+        "|---|" + "---:|" * (len(POINTS) + 8),
     ]
     for r in results:
         long = _point(r, LONG)
@@ -56,6 +56,8 @@ def speed_table(results: list[dict]) -> str:
         cells += [_number(p["tokens_per_s"], 0) if (p := _point(r, pt)) else "–" for pt in POINTS]
         cells += [
             "–" if speedup is None else f"{speedup:.2f}×",
+            # Only rows combined from several batches have a spread between batches.
+            "–" if not long or long.get("batch_spread_pct") is None else f"{long['batch_spread_pct']:.0f}%",
             _number(long["first_token_ms"] if long else None, 2),
             _number(long["per_token_ms"] if long else None, 2),
             _number(r["model_mb"], 1),
@@ -93,6 +95,16 @@ def machines(results: list[dict]) -> str:
     return "; ".join(seen)
 
 
+def batches_note(results: list[dict]) -> str:
+    """How rows combined from several batches read; empty when every row is a single batch."""
+    counts = sorted({r["batches"] for r in results if r.get("batches", 1) > 1})
+    if not counts:
+        return ""
+    n = str(counts[0]) if len(counts) == 1 else f"{counts[0]} to {counts[-1]}"
+    return (f" Each row is the median across {n} batches of the whole table (`combine`); Batch IQR is the "
+            f"interquartile range of tok/s at {LONG[0]}+{LONG[1]} across those batches, as a share of the median.")
+
+
 def build_report(results_dir: Path, judge_dir: Path) -> str:
     results = load_results(results_dir) if results_dir.exists() else []
     judges = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(judge_dir.glob("*.json"))] \
@@ -104,7 +116,7 @@ def build_report(results_dir: Path, judge_dir: Path) -> str:
         f"token and ms / token are at {LONG[0]}+{LONG[1]}. Speed-up is against the same model in plain bf16. "
         "Perplexity and ECE are on the held-out text. Rows that only add the KV cache, CUDA graphs or "
         "speculative decoding produce their model's distribution unchanged (exact in fp32, as tested), "
-        "so their quality is not measured again.",
+        "so their quality is not measured again." + batches_note(results),
         "",
         speed_table(results) if results else "_No rows measured yet._",
         "",

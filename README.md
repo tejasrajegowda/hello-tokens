@@ -10,9 +10,9 @@ engineering: making generation fast, and measuring what each optimization costs 
 
 ## Status
 
-**v1 is complete.** v2's components (modern architecture, KV cache, fused attention, CUDA graphs,
-quantization, speculative decoding, calibration, judge mode, local serving) are built and tested; the
-remaining step is measuring them all on the GPU. Each step is recorded in
+**v1 and v2 are complete.** v2's components (modern architecture, KV cache, fused attention, CUDA
+graphs, quantization, speculative decoding, calibration, judge mode, local serving) are built, tested,
+and measured on the GPU: [Results (v2)](#results-v2). Each step is recorded in
 [docs/build-log.md](docs/build-log.md).
 
 **The book.** [docs/book/](docs/book/README.md) teaches the project step by step, for a reader who
@@ -66,16 +66,59 @@ The tables below are generated from the saved measurements in `benchmarks/` by
 `python -m hello_tokens report`; they are never edited by hand. Rows not yet measured on the GPU are
 absent rather than estimated.
 
+**What the measurements show** (at a 16-token prompt and 224 new tokens, against the same model in
+plain bf16):
+
+- **CUDA graphs are the large gain: 10–15×.** One token takes about 200 small GPU operations, and at
+  this model size the time goes into launching them, not into the arithmetic. Replaying the whole step
+  as one graph takes v2 from 83 to 1,215 tokens/s (12.1 ms to 0.77 ms per token).
+- **The KV cache alone changes nothing here (1.00×).** It removes arithmetic, and arithmetic was not
+  the limit. It is still required: the graph replays the cached one-token step.
+- **Fused attention: 1.27× (v2) to 1.46× (v1)**, from fewer operations per step.
+- **Speculative decoding: 1.7–2.1× on the long answer**, with a 1.7M-parameter draft model whose tokens
+  v2 accepts 40–62% of the time. It gains only 1.1–1.25× on the long prompt and slows the first token
+  (18–27 ms against 12), and at its best it reaches 173 tokens/s, against 1,215 with graphs.
+- **Quantization is about size and quality, not speed.** int8 nearly halves v2 (28.6 to 16.1 MB) with
+  perplexity unchanged (3.568); int4 reaches 10.2 MB at +1.8% perplexity, and calibration error stays
+  0.0077–0.0078, so the smaller models are not more overconfident. Unpacking the weights adds
+  operations, so they are slower without graphs (0.87×, 0.55×) and still 11× and 7× faster with them.
+
+**How the numbers were made reliable.** The laptop could not be kept idle while it measured, and one
+run's own spread (five runs within minutes) cannot show a whole batch running slow. So the full table
+was measured 11 times in one night. A batch counts only if its simplest row, v1 bf16, is within 10% of
+a quiet-machine reference (5.91 ms per token, measured earlier); 8 of the 11 passed, and every number
+is the median across those 8. Batch IQR shows how much each row moved between batches. All 11
+batches are kept in [`benchmarks/batches/`](benchmarks/batches/), and `python -m hello_tokens combine`
+reproduces the selection and the table.
+
 <!-- benchmarks:start -->
 ### Speed and quality
 
-Greedy writing, no stop token, median of 5 runs; tok/s at (prompt + new tokens). Speed-up, first token and ms / token are at 16+224. Speed-up is against the same model in plain bf16. Perplexity and ECE are on the held-out text. Rows that only add the KV cache, CUDA graphs or speculative decoding produce their model's distribution unchanged (exact in fp32, as tested), so their quality is not measured again.
+Greedy writing, no stop token, median of 5 runs; tok/s at (prompt + new tokens). Speed-up, first token and ms / token are at 16+224. Speed-up is against the same model in plain bf16. Perplexity and ECE are on the held-out text. Rows that only add the KV cache, CUDA graphs or speculative decoding produce their model's distribution unchanged (exact in fp32, as tested), so their quality is not measured again. Each row is the median across 8 batches of the whole table (`combine`); Batch IQR is the interquartile range of tok/s at 16+224 across those batches, as a share of the median.
 
-| Row | tok/s 16+64 | tok/s 16+224 | tok/s 128+128 | Speed-up | First token ms | ms / token | Size MB | Peak MB | Perplexity | ECE |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `v1 fp32` | 168 | 168 | 166 | 0.99× | 6.45 | 5.95 | 63.5 | 83 | 3.620 | – |
-| `v1 bf16` | 168 | 169 | 169 | 1.00× | 6.27 | 5.91 | 31.7 | 46 | 3.622 | – |
-| `v2 bf16` | 74 | 75 | 78 | 1.00× | 12.11 | 13.27 | 28.6 | 42 | 3.568 | – |
+| Row | tok/s 16+64 | tok/s 16+224 | tok/s 128+128 | Speed-up | Batch IQR | First token ms | ms / token | Size MB | Peak MB | Perplexity | ECE |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `v1 fp32` | 169 | 167 | 162 | 1.01× | 7% | 6.10 | 5.99 | 63.5 | 83 | 3.620 | 0.0084 |
+| `v1 bf16` | 168 | 166 | 166 | 1.00× | 8% | 6.13 | 6.03 | 31.7 | 46 | 3.622 | 0.0083 |
+| `v1 bf16 cache` | 166 | 166 | 164 | 1.00× | 12% | 7.24 | 6.01 | 31.7 | 46 | – | – |
+| `v1 bf16 fused` | 232 | 242 | 244 | 1.46× | 3% | 4.34 | 4.13 | 31.7 | 46 | 3.622 | 0.0084 |
+| `v1 bf16 cache fused` | 212 | 215 | 219 | 1.29× | 7% | 5.12 | 4.66 | 31.7 | 46 | – | – |
+| `v1 bf16 cache graphs` | 1,448 | 1,880 | 1,800 | 11.34× | 10% | 7.11 | 0.50 | 31.7 | 63 | – | – |
+| `v1 bf16 cache fused graphs` | 1,357 | 1,734 | 1,684 | 10.45× | 6% | 5.37 | 0.55 | 31.7 | 63 | – | – |
+| `v2 bf16` | 81 | 83 | 85 | 1.00× | 6% | 12.14 | 12.08 | 28.6 | 42 | 3.568 | 0.0077 |
+| `v2 bf16 cache` | 83 | 83 | 83 | 1.00× | 5% | 13.20 | 12.02 | 28.6 | 39 | – | – |
+| `v2 bf16 fused` | 105 | 105 | 105 | 1.27× | 10% | 9.54 | 9.54 | 28.6 | 42 | 3.568 | 0.0077 |
+| `v2 bf16 spec-k2` | 132 | 139 | 106 | 1.68× | 6% | 18.26 | 7.15 | 28.6 | 45 | – | – |
+| `v2 bf16 spec-k4` | 143 | 152 | 105 | 1.84× | 9% | 23.55 | 6.49 | 28.6 | 45 | – | – |
+| `v2 bf16 spec-k6` | 127 | 162 | 93 | 1.95× | 13% | 27.00 | 6.09 | 28.6 | 45 | – | – |
+| `v2 bf16 int8` | 71 | 72 | 73 | 0.87× | 7% | 14.09 | 13.92 | 16.1 | 30 | 3.568 | 0.0078 |
+| `v2 bf16 int4` | 45 | 45 | 46 | 0.55× | 14% | 22.16 | 22.15 | 10.2 | 24 | 3.633 | 0.0077 |
+| `v2 bf16 cache fused` | 98 | 97 | 100 | 1.17× | 11% | 10.73 | 10.29 | 28.6 | 39 | – | – |
+| `v2 bf16 cache graphs` | 944 | 1,215 | 1,121 | 14.68× | 3% | 13.06 | 0.77 | 28.6 | 57 | – | – |
+| `v2 bf16 fused spec-k4` | 165 | 173 | 115 | 2.09× | 27% | 18.50 | 5.74 | 28.6 | 45 | – | – |
+| `v2 bf16 cache fused graphs` | 962 | 1,181 | 1,132 | 14.27× | 5% | 11.07 | 0.80 | 28.6 | 57 | – | – |
+| `v2 bf16 cache graphs int8` | 744 | 902 | 860 | 10.90× | 7% | 15.22 | 1.05 | 16.1 | 45 | – | – |
+| `v2 bf16 cache graphs int4` | 526 | 603 | 567 | 7.28× | 6% | 23.24 | 1.56 | 10.2 | 39 | – | – |
 
 Measured on: NVIDIA GeForce RTX 4060 Laptop GPU, PyTorch 2.14.0+cu130, Python 3.14.3.
 
@@ -195,6 +238,7 @@ uv run python -m hello_tokens bench --name v2 --dtype bfloat16 --cache --fused  
 uv run python -m hello_tokens judge --name v2                  # multiple-choice accuracy and the switch
 uv run python -m hello_tokens play                             # the local playground in a browser
 uv run python scripts/gpu_benchmarks.py                        # every GPU measurement, resumable
+uv run python -m hello_tokens combine benchmarks/batches/2026-10-07   # median rows from several batches
 uv run python -m hello_tokens report                           # rebuild the tables from benchmarks/
 ```
 
@@ -213,12 +257,12 @@ uv run python -m hello_tokens report                           # rebuild the tab
 - [x] Modern components: RoPE, RMSNorm, SwiGLU, grouped-query attention
 - [x] KV cache
 - [x] Fused attention
-- [ ] CUDA graphs for the one-token step (exact on the CPU; GPU test pending)
+- [x] CUDA graphs for the one-token step
 - [x] int8 and int4 weight quantization
-- [x] Speculative decoding with a small draft model (draft training pending)
+- [x] Speculative decoding with a small draft model
 - [x] Judge mode: score a fixed set of answers in a single forward pass, falling back to generation below a confidence threshold
 - [x] Calibration (expected calibration error), measured before and after quantization
-- [ ] Benchmarks: tokens per second, latency, and quality retained, for every row
+- [x] Benchmarks: tokens per second, latency, and quality retained, for every row
 - [x] A small local serving API
 
 ## Design

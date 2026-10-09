@@ -4,6 +4,7 @@
     "model": "v2",
     "dtype": "bfloat16",
     "cache": "none",
+    "attention": "ours",
     "graphs": "none",
     "quantization": "none",
     "decoding": "normal"
@@ -12,39 +13,44 @@
     {
       "prompt_tokens": 16,
       "new_tokens": 64,
-      "first_token_ms": 14.685199999803444,
-      "per_token_ms": 13.459250793641246,
-      "tokens_per_s": 74.19274812264435,
-      "spread_ms": 274.7486000025674,
+      "first_token_ms": 12.531050000688992,
+      "per_token_ms": 12.256060317465906,
+      "tokens_per_s": 81.47487354601088,
+      "spread_ms": 60.707800003001466,
+      "batch_spread_pct": 23.322342478710514,
       "identical_runs": true
     },
     {
       "prompt_tokens": 16,
       "new_tokens": 224,
-      "first_token_ms": 12.113100001442945,
-      "per_token_ms": 13.270108520177704,
-      "tokens_per_s": 75.38667728269908,
-      "spread_ms": 212.75410000089323,
+      "first_token_ms": 12.139850005041808,
+      "per_token_ms": 12.08358991033953,
+      "tokens_per_s": 82.75615371431948,
+      "spread_ms": 134.67950000085693,
+      "batch_spread_pct": 5.775922605788921,
       "identical_runs": true
     },
     {
       "prompt_tokens": 128,
       "new_tokens": 128,
-      "first_token_ms": 15.517100000579376,
-      "per_token_ms": 12.874481889777211,
-      "tokens_per_s": 77.54867193950548,
-      "spread_ms": 52.31409999942116,
+      "first_token_ms": 12.029699995764531,
+      "per_token_ms": 11.763515354372014,
+      "tokens_per_s": 84.99775508596794,
+      "spread_ms": 48.173524997764616,
+      "batch_spread_pct": 6.455469176891632,
       "identical_runs": true
     }
   ],
   "model_mb": 28.642048,
   "peak_memory_mb": 42.058752,
   "perplexity": 3.5681651459897075,
+  "ece": 0.007747247674054709,
   "machine": {
     "python": "3.14.3",
     "torch": "2.14.0+cu130",
     "cpu": "AMD64 Family 25 Model 68 Stepping 1, AuthenticAMD",
     "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU"
   },
-  "measured_at": "2026-10-03T22:44:05"
+  "measured_at": "2026-10-07T05:42:26",
+  "batches": 8
 }

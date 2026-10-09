@@ -1,6 +1,7 @@
 """Command-line entry point: python -m hello_tokens <command>."""
 
 import argparse
+import json
 import platform
 import sys
 import time
@@ -8,6 +9,7 @@ from pathlib import Path
 
 import torch
 
+from hello_tokens.benchmark.aggregate import ANCHOR_REFERENCE_MS, ANCHOR_TOLERANCE, select_and_combine
 from hello_tokens.benchmark.harness import Setup, format_table, load_results, run_benchmark, save_result
 from hello_tokens.corpus.download import download_all
 from hello_tokens.corpus.encode import encode_file, load_tokens
@@ -96,7 +98,12 @@ def main(argv: list[str] | None = None) -> int:
     bench.add_argument("--data-dir", type=Path, default=Path("data"))
     report = commands.add_parser("report", help="write docs/benchmarks.md (and the README's table) from saved results")
     report.add_argument("--check", action="store_true", help="only report whether the files are up to date")
-    play = commands.add_parser("play", help="open the playground: the models write side by side in a browser")
+    combine = commands.add_parser("combine", help="combine several benchmark batches into one row each (medians)")
+    combine.add_argument("batches", type=Path, help="a folder holding one folder of saved rows per batch")
+    combine.add_argument("--reference-ms", type=float, default=ANCHOR_REFERENCE_MS,
+                         help="quiet-machine v1 bf16 ms/token at 16+224 that a batch must match")
+    combine.add_argument("--tolerance", type=float, default=ANCHOR_TOLERANCE, help="allowed relative difference")
+    play =commands.add_parser("play", help="open the playground: the models write side by side in a browser")
     play.add_argument("--port", type=int, default=8000)
     play.add_argument("--no-browser", action="store_true", help="don't open a browser window")
     play.add_argument("--data-dir", type=Path, default=Path("data"))
@@ -116,6 +123,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_play(args)
     if args.command == "report":
         return run_report(args.check)
+    if args.command == "combine":
+        return run_combine(args)
     if args.command == "judge":
         return run_judge_command(args)
     if args.command == "profile":
@@ -218,6 +227,23 @@ def run_bench(args) -> int:
             result.ece = bins.result().ece
         print(f"saved {save_result(result, RESULTS)}")
     print(format_table(load_results(RESULTS)))
+    return 0
+
+
+def run_combine(args) -> int:
+    """Combine the batches that pass the anchor check, save one row each, and say which were used."""
+    rows, anchors, used = select_and_combine(args.batches, args.reference_ms, args.tolerance)
+    for name, ms in anchors.items():
+        verdict = "used" if name in used else "not used"
+        print(f"{name}: v1 bf16 {ms:.2f} ms/token (reference {args.reference_ms}) -> {verdict}")
+    if not used:
+        print("no batch passed the anchor check; nothing saved")
+        return 1
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    for row in rows:
+        path = RESULTS / (row["row"].replace(" ", "-") + ".json")
+        path.write_text(json.dumps(row, indent=2) + "\n", encoding="utf-8")
+    print(f"saved {len(rows)} rows to {RESULTS}, each the median of {len(used)} batches")
     return 0
 
 

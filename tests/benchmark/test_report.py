@@ -54,9 +54,22 @@ def test_values_that_were_not_measured_show_as_a_dash_never_as_zero():
                              points=[(16, 64), (16, 224)])])
     cells = [c.strip() for c in table.splitlines()[2].split("|")[1:-1]]
     assert cells[3] == "–"  # the (128, 128) point is missing
-    assert cells[8] == "–"  # peak memory 0: a CPU run
-    assert cells[9] == "3.568"
-    assert cells[10] == "–"  # no ECE
+    assert cells[5] == "–"  # a single batch: no spread between batches
+    assert cells[9] == "–"  # peak memory 0: a CPU run
+    assert cells[10] == "3.568"
+    assert cells[11] == "–"  # no ECE
+
+
+def test_combined_rows_show_their_spread_between_batches_and_how_many_there_were(tmp_path):
+    combined = row("v2 bf16", "v2", 75, "1")
+    combined["batches"] = 8
+    for point in combined["points"]:
+        point["batch_spread_pct"] = 6.4
+    cells = [c.strip() for c in speed_table([combined]).splitlines()[2].split("|")[1:-1]]
+    assert cells[5] == "6%"
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / "v2-bf16.json").write_text(json.dumps(combined), encoding="utf-8")
+    assert "median across 8 batches" in build_report(tmp_path / "results", tmp_path / "judge")
 
 
 def test_the_judge_table_reports_the_held_out_split():

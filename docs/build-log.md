@@ -595,3 +595,28 @@ What was built, in order, and why.
   graphs, which remove exactly that CPU-side work. The script therefore times one v1 step before any
   benchmark and refuses to run above `--max-step-ms` (8 ms by default). That run's speed rows were set
   aside. The script also gains the missing `v1 fp32` row and `--redo PREFIX` to re-run finished steps.
+
+## 31. Combining batches, and the v2 results
+
+- **Why one batch was not enough.** The measuring night shared the laptop with other work. Single
+  batches varied by up to 2× in their slowest rows, while each batch's own spread (five runs within
+  minutes) stayed small, so it could not reveal a batch that ran slow as a whole. A gate on the
+  within-batch spread was also wrong in principle: an earlier batch measured on a quiet machine fails it
+  too. Instead, the full table was measured 11 times in one night.
+- **Selection by a fixed anchor.** `python -m hello_tokens combine <folder>`
+  (`hello_tokens/benchmark/aggregate.py`) reads one folder of saved rows per batch and uses a batch only
+  if its simplest row, v1 bf16, is within 10% of a quiet-machine reference (5.91 ms per token at 16+224).
+  The rule had been fixed before the batches were combined, and the command prints every batch's anchor
+  value and whether it was used. 8 of 11 passed.
+- **Medians, with their uncertainty.** Every value at every point is the median across the used
+  batches. Each point also keeps the interquartile range of tokens per second across batches, as a
+  share of the median, and the report shows it as Batch IQR (3–14% for most rows, 27% for the noisiest).
+  Batches holding different rows, setups or points are refused rather than mixed.
+- **Raw evidence.** All 11 batches are committed in `benchmarks/batches/2026-10-07/`, named by start
+  time, so the selection and every number can be recomputed.
+- **Results.** CUDA graphs are the large gain (10.5–14.7×). The KV cache alone gives 1.00×, because the
+  one-token step is limited by launch overhead, not arithmetic. Speculative decoding gives 1.7–2.1× on
+  long answers without graphs. int8 and int4 cut v2 from 28.6 MB to 16.1 and 10.2 MB with perplexity
+  unchanged and +1.8%, and the same calibration error.
+- **Tests.** Medians and the spread between batches, refusal of mismatched batches, the anchor check,
+  reading batch folders, and the new report column and note.

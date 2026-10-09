@@ -1,0 +1,56 @@
+{
+  "row": "v2 bf16 cache fused",
+  "setup": {
+    "model": "v2",
+    "dtype": "bfloat16",
+    "cache": "kv",
+    "attention": "fused",
+    "graphs": "none",
+    "quantization": "none",
+    "decoding": "normal"
+  },
+  "points": [
+    {
+      "prompt_tokens": 16,
+      "new_tokens": 64,
+      "first_token_ms": 10.596700001769932,
+      "per_token_ms": 10.237703968284354,
+      "tokens_per_s": 97.63489326251303,
+      "spread_ms": 24.24292501018499,
+      "batch_spread_pct": 11.53830135695819,
+      "identical_runs": true
+    },
+    {
+      "prompt_tokens": 16,
+      "new_tokens": 224,
+      "first_token_ms": 10.73135000478942,
+      "per_token_ms": 10.294344170362143,
+      "tokens_per_s": 97.18697284919894,
+      "spread_ms": 68.55675000224437,
+      "batch_spread_pct": 10.584281973769757,
+      "identical_runs": true
+    },
+    {
+      "prompt_tokens": 128,
+      "new_tokens": 128,
+      "first_token_ms": 10.516850001295097,
+      "per_token_ms": 10.002227559033507,
+      "tokens_per_s": 99.93950769308395,
+      "spread_ms": 24.035875001573004,
+      "batch_spread_pct": 7.234973630067933,
+      "identical_runs": true
+    }
+  ],
+  "model_mb": 28.642048,
+  "peak_memory_mb": 39.467008,
+  "perplexity": null,
+  "ece": null,
+  "machine": {
+    "python": "3.14.3",
+    "torch": "2.14.0+cu130",
+    "cpu": "AMD64 Family 25 Model 68 Stepping 1, AuthenticAMD",
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU"
+  },
+  "measured_at": "2026-10-07T05:44:38",
+  "batches": 8
+}
