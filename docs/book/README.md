@@ -38,7 +38,7 @@ command no longer exists. Every number comes from a file committed alongside the
 19. [CUDA graphs](19-cuda-graphs.md)
 20. [int8 and int4 quantization](20-quantization.md)
 21. [Speculative decoding](21-speculative-decoding.md)
-22. Calibration
-23. Judge mode
+22. [Calibration](22-calibration.md)
+23. [Judge mode](23-judge-mode.md)
 24. Serving
 25. The results
