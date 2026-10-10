@@ -34,8 +34,9 @@ the benchmark table the smaller model is slower, and the sizes fall.
 - **int8**: integers from −127 to 127, one byte each, one scale per output row.
 - **int4**: integers from −7 to 7, one scale per group of 64 weights along a row. Two integers
   share a byte.
-- **Group**: those 64 consecutive weights. The code's argument is `group`, and the constant is
-  `GROUP`.
+- **Group**: 64 consecutive weights along a row. This is not the query group in
+  [chapter 15](15-grouped-query-attention.md), where several query heads share one key and value
+  head. The code's argument is `group`, and the constant is `GROUP`.
 - **Buffer**: a tensor stored and moved with the model that is not a parameter, so training does
   not update it. The integers and the scales are buffers.
 
@@ -495,8 +496,8 @@ within True
 ```
 
 Unpacking the byte returns 3 and −2. The scale is 1 / 127, because 1 is the largest absolute
-value in the row. 63.5 sits halfway between 63 and 64, and the stored integer is 64. 31.75 is
-nearer 32. The restored −1 and 0 match the row. The third restored value is one printed
+value in the row. 63.5 sits halfway between 63 and 64. `torch.round` uses round-half-to-even, so
+63.5 is stored as 64, the even integer. 31.75 is nearer 32, not a tie. The restored −1 and 0 match the row. The third restored value is one printed
 half-step above 0.5, and `within` uses the int8 test's slack.
 
 ## What we got
@@ -504,9 +505,9 @@ half-step above 0.5, and `within` uses the int8 test's slack.
 The CPU tests do not pin a speed. The speed below is the median across 8 batches in
 [`docs/benchmarks.md`](../../docs/benchmarks.md), on the NVIDIA GeForce RTX 4060 Laptop GPU
 named there. Speed-up, first token, and milliseconds per token are at a 16-token prompt and
-224 new tokens, against plain bf16. Chapter 11 states that rule, and shows the speed-up as the
-ratio of the unrounded long-answer rates. The token counts in the table are integers, so the
-speed-up is not their quotient. Chapter 17's plain v2 rate at that point is 83 tokens/s, at
+224 new tokens, against plain bf16. Chapter 11 shows that ratio as
+`long["tokens_per_s"] / base_long["tokens_per_s"]`. The token counts in the table are those
+rates printed as integers, so the speed-up is not their quotient. Chapter 17's plain v2 rate at that point is 83 tokens/s, at
 28.6 MB. Chapter 18 states perplexity 3.568 and ECE 0.0077. Chapter 19's graph row at that
 point is 1,215 tokens/s.
 
@@ -533,12 +534,14 @@ The graph rows stay well above plain bf16 and below chapter 19's 1,215, at 902 a
 tokens/s. Their speed-up cells are against plain bf16, 10.90× and 7.28×, which the README
 rounds to 11× and 7×. The other two lengths are lower than the unquantized graph row as well.
 int8 perplexity stays 3.568. int4 is 3.633. (3.633 − 3.568) / 3.568 is 1.82%, the README's
-+1.8%. ECE is 0.0078 and 0.0077. The README reads 0.0077–0.0078 as the smaller models not
-being more overconfident. The int4 batch IQR, 14%, is the widest of these four cells.
++1.8%. ECE is 0.0078 and 0.0077. The cell is the size of an unsigned gap, so it cannot show whether
+confidence sat above accuracy or below it. [Chapter 22](22-calibration.md) reads that on the
+prefix. The int4 batch IQR, 14%, is the widest of these four cells.
 
 The build log's first reading was a different pass: v2 in fp32 on the CPU, over the first
-50,000 held-out tokens, perplexity 3.5983, 3.5985, and 3.6599. The log calls those moves
-+0.01% and +1.7%. They are not the cells above.
+50,000 held-out tokens, perplexity 3.5983, 3.5985, and 3.6599. (3.6599 − 3.5983) / 3.5983 is
+about 1.7%, the log's +1.7%. (3.5985 − 3.5983) / 3.5983 is about 0.0056%, which the log writes
+as +0.01%. They are not the cells above.
 
 ## Check yourself
 

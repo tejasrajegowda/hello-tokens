@@ -74,7 +74,9 @@ text is ordinary greedy writing. The bench path uses this case: it calls the str
 
 Both models keep a KV cache. Rejected guesses are dropped by rolling the length pointer back, the
 operation chapter 17 defines. The last token of the round stays out of both caches and is read
-next round. When the pending tokens plus `k` guesses would not fit, both caches restart from the
+next round. When every guess is kept, the draft also never stored its last accepted guess, so
+the draft's next pending is that guess plus the bonus, while the target's pending is only the
+bonus. When the pending tokens plus `k` guesses would not fit, both caches restart from the
 last three quarters of the context, the same fraction chapter 17 uses, with one shared base.
 
 ## The shapes
@@ -165,6 +167,9 @@ temperature 0.8, `top_k` and `top_p` left off, `k` 4. `stop_id` is not yielded. 
 ...
     target_cache, draft_cache = target.new_cache(), draft.new_cache()
     base = max(0, len(tokens) - context)  # both caches start at the same place
+    counts = stats if stats is not None else {}
+    for key in ("rounds", "drafted", "accepted"):
+        counts.setdefault(key, 0)
 ...
         if len(tokens) - base + k > context:
             target_cache.rollback(0), draft_cache.rollback(0)
@@ -183,6 +188,10 @@ add `k`.
     def dials(logits: torch.Tensor) -> torch.Tensor:
         return filtered_probabilities(logits, temperature, top_k, top_p)
 ...
+        target_pending = tokens[base + target_cache.length :]
+        draft_pending = tokens[base + draft_cache.length :]
+        before = len(tokens)
+...
         guesses, draft_dists = [], []
         feed = draft_pending
         for _ in range(k):
@@ -198,8 +207,10 @@ add `k`.
         target_dists = [dials(row) for row in logits[-(k + 1):]]
 ```
 
-`dials` passes the three arguments through by name position: `temperature`, then `top_k`, then
-`top_p`. The draft's first call reads `draft_pending`. Each later call reads only the guess just
+`dials` calls `filtered_probabilities` positionally: `logits`, then `temperature`, then `top_k`,
+then `top_p`. The draft's first call reads `draft_pending`, assigned with `target_pending` and
+`before` just above the loop. `before` is `len(tokens)` at the start of the round. `counts` is
+the dict the signature calls `stats`, or a new dict when `stats` is omitted. Each later call reads only the guess just
 chosen. After `k` calls the draft cache holds the pending tokens and the first `k - 1` guesses.
 The last guess was sampled and not fed back. The target's single call reads pending and every
 guess. `target_dists[i]` is the distribution for guess `i`, and `target_dists[k]` is the bonus
@@ -346,8 +357,9 @@ def test_greedy_speculative_writing_is_exactly_greedy_writing(name, k):
 ```
 
 Four runs: the names `"v1"` and `"v2"`, and `k` of 1 and 4. The prompt has five ids, and 25 new
-tokens keep 5 + 25 inside the test context of 32, which is why this test does not hit the
-restart. `temperature=0` is the greedy case. The ids must match `generate` from chapter 8, token
+tokens keep 5 + 25 inside the test context of 32. The restart check is
+`len(tokens) - base + k > context`, so that sum staying within 32 does not by itself say
+whether the check ran. `temperature=0` is the greedy case. The ids must match `generate` from chapter 8, token
 for token. `"drafted"` must be `k` times `"rounds"`, and `"accepted"` must sit between 0 and
 `"drafted"`. The test does not require a particular acceptance rate.
 

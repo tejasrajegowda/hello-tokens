@@ -43,7 +43,8 @@ overhead entirely would leave about the GPU time, roughly 6–10 times faster.
 
 [Chapter 16](16-ablations-and-training-v2.md) keeps a different reading beside that expectation.
 Section 18 of the build log, from before these batches, lists v2 bf16 at 75 tokens/s and 13.27 ms,
-and v1 bf16 at 169 tokens/s and 5.91 ms, and calls v2 2.25× more slowly. The published long-answer
+and v1 bf16 at 169 tokens/s and 5.91 ms. Chapter 16 calls that 2.25 times as long. 13.27 / 5.91
+is 2.25 to two decimal places. The published long-answer
 rates, in that same order, are 83 and 166 tokens/s.
 
 ### A whole folder can be slow together
@@ -202,7 +203,8 @@ a second folder whose `model_mb` is 16.1 instead of the helper's 28.6. Both rais
 `test_each_value_is_the_median_across_batches_and_the_spread_between_them_is_kept` builds five
 one-row batches from those per-token times. The combined `per_token_ms` is 5.5. `tokens_per_s` is
 approximately `1000 / 5.5`. `batch_spread_pct` is greater than 0 and less than 50. `batches` is 5
-and `perplexity` is 3.6. `measured_at` is the fifth batch's timestamp. The comment on the
+and `perplexity` is 3.6. `measured_at` is the fifth batch's timestamp,
+`2026-01-05T00:00:00`. The five stamps run from `2026-01-01T00:00:00` through that one. The comment on the
 assertion says the slow 8.0 batch does not pull the number up.
 
 `test_batches_with_different_rows_or_setups_are_refused` expects `ValueError` matching

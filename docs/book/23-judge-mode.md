@@ -17,13 +17,16 @@ it is not that number.
 
 ## Words
 
-- **Softmax**, **log-probability**: see [chapter 6](06-the-learning-loop.md#words). The
+- **Softmax**: see [chapter 6](06-the-learning-loop.md#words). **Log-probability**: the logarithm
+  of the true token's probability. Chapter 6's loss is the negative of that number. The
   **temperature** in [chapter 8](08-writing-sampling.md#words) divides the next-token logits
   before sampling. The temperature in this chapter divides the four option scores, before
   their own softmax. **Perplexity** and the held-out file: see
   [chapter 9](09-measuring-it-perplexity.md#words). **Expected calibration error** and the
   15 next-token bins: see [chapter 22](22-calibration.md#words).
-- **Option**: one candidate next sentence. **Context**: the sentences before it.
+- **Option**: one candidate next sentence. **Context**: the sentences before it, stored on the
+  question as `context`. **Window**: how many tokens the model reads, `config.context`. A long
+  context is cropped to the window. The two words are not the same limit.
 - **Summed** score: the total log-probability of an option's tokens. **Mean** score: that
   total divided by how many tokens the option has. The mean is the alternative that does not
   favour a short option.
@@ -68,8 +71,9 @@ have shape `4 × (padded length − 1) × vocabulary`, where the padded length i
 row. Only the positions that predict the option's own tokens are gathered. The context's
 positions are not part of the score.
 
-The trained model's context is 256. A long context is cut from the left until the longest
-option still fits. The test model uses a context of 48, so the cut is easy to hit.
+The sentences are the context. The window is a different limit: the trained model's
+`config.context` is 256, and the test model's is 48. A long context is cut from the left until
+the longest option still fits in that window. The test window of 48 makes the cut easy to hit.
 
 ## The code
 
@@ -145,10 +149,11 @@ def score_options(model: GPT, tokenizer: Tokenizer, question: Question) -> Judge
     log_probs = F.log_softmax(model(batch[:, :-1]).float(), dim=-1)
 ```
 
-`room` is how many context tokens fit in front of the longest option. The model reads one
-token fewer than the full row, which is why the formula adds one before subtracting the
-option. An option longer than the context raises `ValueError`. An empty context is replaced
-by the end-of-text id. A longer context keeps its last `room` tokens. The rows are padded on
+`room` is how many tokens of the context fit in the window in front of the longest option. The
+model reads one token fewer than the full row, which is why the formula adds one before
+subtracting the option. An option longer than the window raises `ValueError`; the message says
+"the model's context", which is this window. An empty context is replaced by the end-of-text
+id. A longer context keeps its last `room` tokens, the end of the sentences, not the start. The rows are padded on
 the right with zeros. The comment gives the reason: a token never attends to what follows it,
 so those zeros cannot change a score that was already computed. `log_softmax` runs in
 `float32`.
@@ -337,8 +342,9 @@ alone with no padding, and sums the log-probabilities at the same positions the 
 `summed` must match within `abs=1e-4`. `mean` must match that sum divided by the option's
 length, within the same tolerance.
 
-The long-context test sets the context to `STORY * 4`, which the comment says is far past 48
-tokens, and requires four summed scores back. It does not compare those scores to a hand sum.
+`test_a_context_longer_than_the_window_keeps_its_end` sets the question's context, the
+sentences, to `STORY * 4`. The comment says that is far past the window of 48 tokens. The test
+requires four summed scores back. It does not compare those scores to a hand sum.
 
 <!-- from: tests/judge/test_judge.py -->
 ```python
@@ -473,8 +479,9 @@ way. The questions are 2,000, and `len // 2` makes the two halves 1,000 each.
 2. What three strings does the sentence test require, and which fragment is absent? The
    question test asks for how many questions, with which seed, and what must be true of
    `options[answer]` and of the other options? What `ModelConfig` does the fixture build, and
-   what tolerance do the one-at-a-time scores use? What does the long-context test pass as
-   context, and what does it require back? What do the switch asserts require at thresholds
+   what tolerance do the one-at-a-time scores use? What does
+   `test_a_context_longer_than_the_window_keeps_its_end` pass as the question's context, and
+   what does it require back? What do the switch asserts require at thresholds
    0 and 0.9, and at targets 1.0 and 0.6? What do the temperature asserts require of `T`,
    of the error, and of the accuracy?
 3. What do the published rows give for answer-all accuracy, the raw and scaled errors, the
@@ -499,9 +506,9 @@ way. The questions are 2,000, and `len // 2` makes the two halves 1,000 each.
    `Ok.` is absent. The question test asks for 4 questions with seed 1. `options[answer]`
    must be the true next sentence, `parts[i]` where `i` is `len(sentences(q.context))`,
    and every other option must be in `parts[i + 1 :]`, with four unique options. The
-   fixture builds vocabulary `tokenizer.vocab_size`, context 48, width 32, 2 layers, and
+   fixture builds vocabulary `tokenizer.vocab_size`, window 48 (`context=48`), width 32, 2 layers, and
    4 heads, after `torch.manual_seed(0)`. The one-at-a-time tolerance is `abs=1e-4`. The
-   long-context test passes `STORY * 4` and requires four summed scores. Threshold 0 must
+   long-context test passes `STORY * 4` as the sentences and requires four summed scores. Threshold 0 must
    give coverage 1.0 and accuracy 2/3. Threshold 0.9 must give coverage 1/3 and accuracy
    1.0. Target 1.0 must return the first judgement's maximum probability. Target 0.6 must
    return a value below 0.6. The fitted temperature must be within `rel=0.15` of 5, the

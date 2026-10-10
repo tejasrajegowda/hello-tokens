@@ -282,7 +282,21 @@ Five tests in `test_calibration.py`. None of them loads a trained checkpoint.
 A synthetic predictor draws 200,000 confidences from a generator seeded with 0, and marks each one
 correct when a second draw falls below the confidence. That is the definition the module gives:
 right with probability equal to the stated confidence. The test requires the error to be below
-0.005.
+0.005. This test is `test_a_perfectly_calibrated_predictor_scores_near_zero`. The next test is a
+different one: ten items, all at 0.9. The `torch.manual_seed(0)` further down belongs to the
+ride-along test, not to this draw.
+
+<!-- from: tests/evaluation/test_calibration.py -->
+```python
+def test_a_perfectly_calibrated_predictor_scores_near_zero():
+    # Confidence c, right with probability exactly c: the definition of calibrated.
+    g = torch.Generator().manual_seed(0)
+    confidence = torch.rand(200_000, generator=g)
+    correct = torch.rand(200_000, generator=g) < confidence
+    bins = CalibrationBins()
+    bins.add(confidence, correct)
+    assert bins.result().ece < 0.005
+```
 
 <!-- from: tests/evaluation/test_calibration.py -->
 ```python
@@ -498,8 +512,8 @@ The log reads every model in that prefix as well calibrated and slightly overcon
 confidence above accuracy by about one point on average. It points to the GPT-4 report, Figure 8,
 for the same pattern in pre-trained models, and says the pattern holds at 14M parameters.
 Chapter 16's v2 row is the exact count behind that round figure. On this prefix the log says
-int4 loses 0.4 points of accuracy and adds 0.001 to the error. Chapter 20 already quotes section
-24's perplexities for the same prefix. Those perplexities, and this table, are not the published
+int4 loses 0.4 points of accuracy and adds 0.001 to the error. Chapter 20 already quotes the
+build log's 3.5983, 3.5985, and 3.6599 for that prefix. Those perplexities, and this table, are not the published
 cells. The published `v2 bf16` error is the full-file median. The 0.0104 above is the prefix.
 
 Chapter 20 quotes the README's reading of the published int8 and int4 errors: the smaller models
@@ -538,8 +552,9 @@ overconfident" belongs to the prefix.
    `over_ece` is the gap between the `float32` value of 0.9 and 0.6, and the test accepts it
    with `pytest.approx(0.3)`. `two_acc` is four correct predictions out of ten. The error
    weights the gaps, 0 on four predictions and 0.5 on six, which is 0.3.
-2. The perfect-predictor test draws 200,000 confidences from `manual_seed(0)` and requires
-   ECE below 0.005. The overconfident test requires `pytest.approx(0.3)`,
+2. The perfect-predictor test draws 200,000 confidences from `torch.Generator().manual_seed(0)`
+   and requires ECE below 0.005. That test is not the ten-item test, and not the ride-along
+   test's `torch.manual_seed(0)`. The overconfident test requires `pytest.approx(0.3)`,
    `pytest.approx(0.6)`, and non-empty counts `[10]`. The two-bin test adds four 0.25s and
    six 1.0s, with booleans `[1, 0, 0, 0, 1, 1, 1, 0, 0, 0]`, and the comment's product is
    `4/10 * 0 + 6/10 * 0.5 = 0.3`. The ride-along config is vocabulary 20, context 16, width

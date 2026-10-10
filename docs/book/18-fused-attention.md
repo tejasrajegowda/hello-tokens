@@ -22,8 +22,9 @@ different lengths, so the switch passes its own. The measured rows are at the en
   [chapter 17](17-the-kv-cache.md#words).
 - **Fused attention**: the same scores, mask, softmax and weighted sum, run as one kernel that does
   not write the score table out to memory.
-- **`scaled_dot_product_attention`**: PyTorch's fused attention. The hand-written function already
-  divides by the square root of the head width; this kernel is asked to do that scaling itself.
+- **`scaled_dot_product_attention`**: PyTorch's fused attention. The calls pass no `scale`. The
+  kernel's default is 1 over the square root of the head width, the divisor the hand-written
+  function writes out.
 - **`is_causal`**: that kernel's built-in mask. It lines the triangle up with the first key.
 - **`attn_mask`**: a mask passed in by the caller. In the function below, `True` means the query
   may attend to that key.
@@ -178,8 +179,9 @@ with `torch.triu` and then inverts it. Chapter 4 and chapter 17 treat `True` as 
 comment on `queries > 1` says, so the `~` is the whole difference. The diagonal expression is the
 one chapter 4 wrote: `keys - queries + 1`.
 
-The function does not divide by the square root of the head width. The hand-written function does.
-The illustration checks that the outputs still agree.
+The function does not divide by the square root of the head width, and it passes no `scale`. The
+kernel's default is 1 over the square root of the head width. The hand-written function writes
+that division itself. The illustration checks that the outputs still agree.
 
 ### After the cache write, choose a path
 
@@ -485,14 +487,16 @@ every launch chapter 10 described.
 
 Adding the cache on top of the kernel is slower than the kernel alone, at every published length.
 At 16+224 the rates fall from 242 to 215 and from 105 to 97, and the speed-ups fall from 1.46× to
-1.29× and from 1.27× to 1.17×. Both cache-and-fused speed-ups are still above 1 against plain bf16.
-The table records the drop and does not explain it. The first token moves the same way: 4.34 ms and
+1.29× and from 1.27× to 1.17×. A speed-up cell is the stored long-answer rates divided, then
+rounded to two decimals, the division [chapter 11](11-the-benchmark-harness.md) shows on
+`tokens_per_s`. 215 / 166 is about 1.30, and the cell is 1.29×. Both cache-and-fused speed-ups
+are still above 1 against plain bf16. The table records the drop. Its cause was not found. The first token moves the same way: 4.34 ms and
 9.54 ms without the cache, against the plain cells 6.13 ms and 12.14 ms, and 5.12 ms and 10.73 ms
 once the cache is added.
 
 The score table the kernel does not store does not show up as a smaller peak. The fused peaks are
 46 MB and 42 MB, the plain peaks. The cache-and-fused peaks are 46 MB and 39 MB, the cache peaks
-chapter 17 already prints, including the 39 MB cell that chapter does not explain. The sizes stay
+chapter 17 already prints. That chapter's peak paragraph accounts for the 39 MB cell. The sizes stay
 31.7 MB and 28.6 MB.
 
 Perplexity on the two fused rows is 3.622 and 3.568, the same printed values as the plain rows.

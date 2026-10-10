@@ -20,8 +20,11 @@ rows are at the end.
 ## Words
 
 - **Kernel**, **launch**, **wall time**: see [chapter 10](10-profiling-one-step.md#words).
-  **KV cache**, **length**, **`advance`**, **`rollback`**: see
-  [chapter 17](17-the-kv-cache.md#words). **Fused attention**, **`fused`**: see
+  **KV cache**, **length**, **`rollback`**: see
+  [chapter 17](17-the-kv-cache.md#words). **`advance`**: add to the cache length. Chapter 17
+  calls `cache.advance` after the last layer, under
+  [Write, then move the length once](17-the-kv-cache.md#write-then-move-the-length-once),
+  not in that chapter's word list. **Fused attention**, **`fused`**: see
   [chapter 18](18-fused-attention.md#words). **Query**, **key**, **value**, **causal mask**: see
   [chapter 4](04-embeddings-and-attention.md#words).
 - **CUDA graph**: a recording of the GPU work in one step. A **replay** sends that recorded
@@ -42,13 +45,9 @@ rows are at the end.
 Chapter 10's profile re-reads a full window and treats a graph as the way to drop the launches.
 The rows at the end measure a whole generation. Each new token in that run is a replay.
 
-<!-- from: hello_tokens/generation/graphs.py -->
-```python
-`torch.compile(mode="reduce-overhead")` would do the same automatically, but it needs Triton, which
-this Windows setup doesn't have; recording by hand needs nothing extra and shows how it works.
-```
-
-The hand recording is `torch.cuda.CUDAGraph`. It keeps the operations, the shapes and the addresses
+The file's opening note says `torch.compile(mode="reduce-overhead")` would record the step on its
+own, but it needs Triton, a language for GPU kernels, which this Windows setup does not have.
+Recording by hand needs nothing extra. The hand recording is `torch.cuda.CUDAGraph`. It keeps the operations, the shapes and the addresses
 it saw, so the token and the position have to live in tensors, the weights have to stay put, and
 the caller moves the cache length, because a replay cannot run Python.
 
@@ -496,7 +495,9 @@ def test_writing_with_the_recorded_step_gives_the_same_text(name, fused):
 ```
 
 Both asserts compare the lists of new ids. The comment says the cache restarts twice. That count
-is not an assert, and this chapter does not use it. Chapter 17 owns the restart rule.
+is not an assert. Chapter 17's rule is `length + len(pending) > context`. On this prompt of 5,
+80 new tokens, and context 32, that rule fires six times, while writing new tokens 29, 38, 47,
+56, 65, and 74, and the length ends at 30.
 
 A one-token prompt is v1 only. Length 1 is why the recorded step runs first, and the assert compares
 the ten new ids.
@@ -569,8 +570,8 @@ def test_moving_the_weights_makes_a_new_step(change):
 ```
 
 The replay test needs a GPU. It is skipped when CUDA is absent, and this chapter did not run it.
-The line skipped below sets `torch.backends.cuda.matmul.allow_tf32` to false. The comment on that
-line says the comparisons are exact fp32.
+The line skipped below sets `torch.backends.cuda.matmul.allow_tf32` to false. The GPU test uses
+the same `atol=1e-5` as the CPU test.
 
 <!-- from: tests/generation/test_graphs.py -->
 ```python
@@ -701,20 +702,23 @@ above that range. Each new token is a replay, not chapter 10's full-window re-re
 
 The README writes 12.1 ms for the plain v2 milliseconds-per-token cell. That cell is the 12.08 ms
 chapter 17 prints, and the v2 graph cell in the same column is 0.77 ms. v1's graph cell is 0.50 ms,
-against chapter 17's 6.03 ms. The speed-up column is a separate cell. It is not that division.
+against chapter 17's 6.03 ms. The speed-up column is a separate cell. It is not 12.08 / 0.77,
+and it is not the printed token rates divided. Chapter 11 divides the stored `tokens_per_s`
+values, and the report rounds that ratio to two decimals. 1,215 / 83 is about 14.64, and the
+cell is 14.68×.
 
 Fused attention on top of the graph is slower at that 16+224 point on both models: 1,734 against
 1,880, and 1,181 against 1,215. On v1
 the fused-graph row is slower at all three lengths: 1,357 against 1,448, 1,734 against 1,880, and
 1,684 against 1,800. On v2 the other two lengths go the other way: 962 against 944 at 16+64, and
-1,132 against 1,121 at 128+128. The table records that and does not explain it.
+1,132 against 1,121 at 128+128. The table records that. The cause was not found.
 
 The first token is not the win on the graphs rows without the fused kernel. Those cells are 7.11 ms
 and 13.06 ms, against the plain 6.13 ms and 12.14 ms chapter 17 prints. The fused-graph first
 tokens, 5.37 ms and 11.07 ms, do beat those plain cells.
 
-Peaks rise, to 63 MB from the plain 46 MB on v1 and to 57 MB from the plain 42 MB on v2. The table
-does not split that rise. The sizes stay 31.7 MB and 28.6 MB. Read across models by the rate: v2 at 1,215 tokens/s is still below v1 at 1,880. The 14.68× is
+Peaks rise, to 63 MB from the plain 46 MB on v1 and to 57 MB from the plain 42 MB on v2. The cause
+of that rise was not found. The sizes stay 31.7 MB and 28.6 MB. Read across models by the rate: v2 at 1,215 tokens/s is still below v1 at 1,880. The 14.68× is
 the speed-up cell against v2's own plain row.
 
 ## Check yourself
@@ -751,7 +755,7 @@ the speed-up cell against v2's own plain row.
    position 0. The writing test's asserts compare the lists of new ids: 80 tokens at temperature
    0, then 40 tokens at temperature 1.0 with `top_p=0.9` and seed 7, graphs against cache, from a
    prompt of length 5. The comment says the cache restarts twice. The asserts do not count
-   restarts. `SHAPE` sets `heads=4` and `width=24`, so the head width is 6. The v2 case sets
+   restarts. Chapter 17's rule fires six times on that prompt, and the length ends at 30. `SHAPE` sets `heads=4` and `width=24`, so the head width is 6. The v2 case sets
    `kv_heads=2`, so the group is 2. The trained v2 model groups 6 query heads onto 2 key/value
    heads, a group of 3. Chapter 18's fused tests use `heads=6` and that group of 3.
 3. `v2 bf16 cache graphs` publishes 1,215 tokens/s and 14.68×. `v2 bf16 cache fused graphs`
@@ -761,8 +765,8 @@ the speed-up cell against v2's own plain row.
    two lengths are faster with the fused kernel. The graphs rows without that kernel have
    first-token cells 7.11 ms and 13.06 ms, against the plain 6.13 ms and 12.14 ms. Perplexity and
    ECE are an en dash because those rows skip quality. The benchmarks header says so, and the
-   graph steps pass `--skip-quality`. The table does not explain the fused-graph gaps or the
-   higher peaks, 63 MB and 57 MB.
+   graph steps pass `--skip-quality`. The causes of the fused-graph gaps and of the higher
+   peaks, 63 MB and 57 MB, were not found.
 
 </details>
 

@@ -99,13 +99,7 @@ The page's temperature and top-p sliders use those bounds, in steps of 0.05. The
 slider is narrower: 10 to 400 in steps of 10, still starting at 200. A caller other than the
 slider can ask for a length from 1 to 9. Several tests do.
 
-<!-- from: hello_tokens/serving/app.py -->
-```python
-`POST /write` streams server-sent events while the models take turns, one token each:
-  start  {"seed", "prompt_tokens"}
-  token  {"model", "text", "probability", "top": [[text, probability], ...], "ms"}
-  done   {"model", "text", "reason"}   ("end": the model ended the story; "length": the limit)
-```
+The file's opening note lists those events in words, not as Python.
 
 Three kinds of message. `start` names the seed and how many prompt tokens were kept. `token`
 is one chosen piece. `done` closes one model: `end` when that model drew the end-of-story id,
@@ -229,7 +223,10 @@ probability and each alternative as a percent to one decimal, from `100 * p`.
 
 The note under the columns says this live figure times only that model's own steps, and that
 it comes out lower than the benchmark because of the odds and the first story's start-up.
-Those odds do happen. They are not inside the milliseconds that formula divides. Which cell
+The odds are computed after the clock stops, so they are not inside those milliseconds.
+The live figure is the median of the step times, and the first step is one of those times.
+The benchmark is the new tokens divided by the total time. The command's warm-up pays the
+start-up the page names, in 8 tokens, before any step time on the page. Which cell
 `play` will show is below.
 
 ### A character that spans two tokens
@@ -324,8 +321,8 @@ is the error's own message.
 
 With no saved judge run, the method is `summed`, the temperature is 1.0 and the threshold
 is 0.9. With a saved run, those three keys are whatever `judge` wrote into
-`benchmarks/judge/<model>.json`. [Chapter 23](23-judge-mode.md) prints that file. This
-chapter does not repeat the fitted values.
+`benchmarks/judge/<model>.json` when that file exists. Chapter 23 describes the saved
+settings and does not name this path. This chapter does not repeat the fitted values.
 
 <!-- from: hello_tokens/serving/app.py -->
 ```python
