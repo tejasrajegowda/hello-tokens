@@ -766,4 +766,4 @@ the speed-up cell against v2's own plain row.
 
 </details>
 
-Next: 20. int8 and int4 quantization
+Next: [20. int8 and int4 quantization](20-quantization.md)

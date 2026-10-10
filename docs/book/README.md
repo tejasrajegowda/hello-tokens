@@ -36,8 +36,8 @@ command no longer exists. Every number comes from a file committed alongside the
 17. [The KV cache](17-the-kv-cache.md)
 18. [Fused attention](18-fused-attention.md)
 19. [CUDA graphs](19-cuda-graphs.md)
-20. int8 and int4 quantization
-21. Speculative decoding
+20. [int8 and int4 quantization](20-quantization.md)
+21. [Speculative decoding](21-speculative-decoding.md)
 22. Calibration
 23. Judge mode
 24. Serving
