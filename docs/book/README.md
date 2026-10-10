@@ -28,8 +28,8 @@ command no longer exists. Every number comes from a file committed alongside the
 
 10. [Profiling one step](10-profiling-one-step.md)
 11. [The benchmark harness](11-the-benchmark-harness.md)
-12. RMSNorm
-13. Rotary position embedding
+12. [RMSNorm](12-rmsnorm.md)
+13. [Rotary position embedding](13-rotary-position-embedding.md)
 14. SwiGLU
 15. Grouped-query attention
 16. Ablations, and training v2

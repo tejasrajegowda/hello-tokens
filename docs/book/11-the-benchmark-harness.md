@@ -493,4 +493,4 @@ NVIDIA GeForce RTX 4060 Laptop GPU, PyTorch 2.14.0+cu130, Python 3.14.3.
 
 </details>
 
-Next: 12. RMSNorm
+Next: [12. RMSNorm](12-rmsnorm.md)
