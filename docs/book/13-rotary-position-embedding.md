@@ -104,8 +104,10 @@ rotates its own.
 A head's query or key, after chapter 4's split, is `(batch, heads, time, 64)`. RoPE reads the last
 axis as 32 pairs and writes the same shape back. The buffers are `(256, 32)`: one row per position,
 one column per pair. A window of length *T* starting at `offset` uses rows `offset` through
-`offset + T`. Those rows have shape `(T, 32)`, which lines up with the last two axes of the query,
-`(time, 32)`, and broadcasts over the batch and the heads.
+`offset + T`. Those rows have shape `(T, 32)`. They line up with each half after the split into
+even and odd, whose last two axes are `(time, 32)`, and they broadcast over the batch and the
+heads. The query those halves were split from is still `(batch, heads, time, 64)`, and the tensor
+written back is 64 wide.
 
 The value keeps shape `(batch, heads, time, 64)` and is not passed to the rotation. The embedding's
 output is still `(batch, time, 384)`, but it is the token table alone.
@@ -485,8 +487,8 @@ on the single unexpected tensor `embedding.position.weight`.
 
 ## What we got
 
-The run is the next row of chapter 12's ladder. Same recipe: 4,000 steps, 65.5M tokens, 200 of
-them warm-up, scored on all 5,683,947 held-out tokens. The two v1 seeds differ by 0.0002. The
+The run is the next row of chapter 12's ladder. Same recipe: 4,000 steps, 200 of them warm-up,
+65.5M tokens, scored on all 5,683,947 held-out tokens. The two v1 seeds differ by 0.0002. The
 RMSNorm row, which this preset stacks on, was 1.5130. Losses, the change, perplexities and
 parameter counts are the build log's table; the minutes are
 [`benchmarks/ablations.json`](../../benchmarks/ablations.json) under `abl-rmsnorm` and `abl-rope`.

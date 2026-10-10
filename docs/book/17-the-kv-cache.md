@@ -171,8 +171,10 @@ is on, that rotation has already run, so the key written here is the rotated one
 ```
 
 `value` is not rotated. Chapter 13's reason still holds: a value carries content, not position.
-The block passes the cache and the layer number through. Attention is the only module that writes
-the buffers.
+The store runs on that narrow key and value, two heads on v2, and then chapter 15's repeat lines
+them up for the score. Storing the repeated tensor would put six heads into a buffer whose head
+axis is the key/value count. The block passes the cache and the layer number through. Attention is
+the only module that writes the buffers.
 
 ### Forgetting by moving the pointer
 
@@ -262,8 +264,9 @@ address would change. The module is written as one allocation because a later ch
 step that must see the same addresses every time. Rollback would also stop being an assignment.
 
 **Reporting the cached story as the uncached one past 256 tokens.** They can differ. The guarantee
-the tests actually make is narrower: the same tokens inside the context, and, past it, the same
-tokens as a loop that restarts on the same three-quarter windows.
+the restart rule supports is narrower: the same tokens inside the context, and, past it, the same
+tokens as a loop that restarts on the same three-quarter windows. One test below also compares a
+long prompt with the ordinary loop, which is a stronger check than that rule.
 
 **Reading the removed arithmetic as a speed-up.** The work removed is the recomputation of old
 tokens. Chapter 10's profile says that work is mostly not what the step is waiting on.
@@ -368,7 +371,7 @@ is past 32, so the second assert does. `temperature=0` is greedy decoding, chapt
 comparison is `==` on the lists of new ids, not `allclose`.
 
 A prompt longer than the context is cropped before either path runs. This test is the small v2
-only, 40 tokens into a context of 32, and five new tokens.
+only: 40 tokens into a context of 32, and five new tokens.
 
 <!-- from: tests/model/test_cache.py -->
 ```python
@@ -378,6 +381,16 @@ def test_a_prompt_longer_than_the_context_still_works():
     with torch.no_grad():
         assert generate(model, prompt, 5, temperature=0, cache=True) == generate(model, prompt, 5, temperature=0)
 ```
+
+The prompt has 40 ids and the context is 32, so both calls first read the last 32. That fills the
+cache. The next token sees a length of 32 and one new id, and `32 + 1 > 32`, so the cache rolls
+back and rereads the last 24 while the ordinary loop rereads the last 32. The four tokens after
+the first are scored on those different windows, the ones the earlier section said can disagree.
+The assert still asks the two `generate` calls for the same five ids. The comparison the restart
+rule stands behind is the 70-token assert above, against `reference_with_the_cache_s_window`, which
+rereads the same windows. This test checks that a prompt which starts already past the context
+still returns. On the untrained model this file builds, the five ids match the ordinary loop. The
+restart rule does not make that match necessary.
 
 The overflow test is the small v1 only. It fills 30 positions of a context of 32, refuses a
 further 3, and refuses `rollback(31)` while the length is 30. Both raises are `ValueError`. The
@@ -466,8 +479,16 @@ does not change the distribution, so those columns are not measured again.
 
 The cache alone measured 1.00×. At 16+224 the rate does not move: 166 stays 166, and 83 stays 83.
 The other two lengths move by a couple of tokens per second. The first token is slower on both
-models, 7.24 ms against 6.13, and 13.20 ms against 12.14. v2's published peak on the cache row is
-39 MB, against 42 MB on the plain row. The table records that cell and does not explain it.
+models, 7.24 ms against 6.13, and 13.20 ms against 12.14. Both clocks include reading the prompt.
+The cache call also builds the buffer before that read: `new_cache` runs inside the timed write.
+The per-token column subtracts the first-token call, and it stays 6.03 ms against 6.01, and
+12.08 ms against 12.02. v2's published peak falls from 42 MB to 39 MB, and v1's stays 46 MB. The
+peak is the run's high-water mark, rounded to a whole MB, not the size of the buffer. v2's buffer
+is 4,096 bytes per position times 256, about 1.05 MB, so the drop is not that buffer being removed.
+A plain step keeps a window that grows toward the context; after the prompt, a cached step keeps
+one token, and it also keeps the buffer. The published peak mixes those and does not split them.
+v1's buffer is 12,288 × 256 bytes, about 3.15 MB, inside the same reported 46 MB. The 28.6 MB size
+is the figure chapter 16 derives: 28.4 MB of weights, plus the sine and cosine buffers.
 
 Chapter 10's expectation was this outcome. Removing the recomputation removes arithmetic. The step
 was mostly not waiting on arithmetic. The cache is still the buffer a later chapter's recorded step

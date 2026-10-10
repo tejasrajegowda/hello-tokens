@@ -366,7 +366,7 @@ The v2 shape then trained on v1's recipe: 20,000 steps, 327,680,000 tokens, the 
 and schedule. The build log records 92 minutes, against v1's 78.5. On the same full held-out file
 the loss is 1.2719 and the perplexity is 3.568, against chapter 9's 1.2866 and 3.620. The build
 log calls that 1.4% lower perplexity, with 10.6% fewer parameters. It also says v2 led at every
-evaluation, by 0.33 at step 500, narrowing to 0.015 at the end: the modern parts mostly make
+evaluation, by 0.33 of loss at step 500, narrowing to 0.015 of loss at the end: the modern parts mostly make
 learning faster, and v1 closes part of the gap. The two full-file losses differ by 0.0147, which
 rounds to that closing 0.015. Step 500 is the first report chapter 7's loop writes, because
 `eval_every` is 500.
@@ -386,16 +386,27 @@ not the speed-up column.
 | `v1 bf16` | 166 | 6.03 | 1.00× | 31.7 |
 | `v2 bf16` | 83 | 12.08 | 1.00× | 28.6 |
 
+The size column is the published one. v2's 14,189,952 parameters at 2 bytes each are
+14,189,952 × 2 / 10^6 = 28.4 MB of weights, using chapter 11's million bytes to a MB. The
+published 28.6 is the report's one-decimal rounding of the build log's 28.64 MB, which includes
+an extra 0.26 MB of sine and cosine buffers. Chapter 13 does not count those buffers as
+parameters.
+
 Section 18's speed table is an earlier reading. It records v1 bf16 at 169 tokens/s and
 5.91 ms, the same early v1 figures chapter 11 names from before the batches were combined, and v2
-bf16 at 75 tokens/s and 13.27 ms. It calls v2 2.25× more slowly. Those rates are not the result.
+bf16 at 75 tokens/s and 13.27 ms. 75 against 169 is 2.25 times as long. Those rates are not the result.
 The published rates are the table above.
 
 The same section of the build log records a profile from that session: a v2 step launches 431
 kernels against v1's 189, which it calls 2.3×, while the GPU is busy for about 1.0–1.7 ms of a
-14 ms step, and v1 for 0.6–1.2 ms of 7.8 ms. It puts the extra launch at about 26 µs. That profile
-is the session's account of why the plain v2 step was slower. It is not the published rate.
-Chapter 10's v1 profile is a different session: about 200 kernels, and a wall of 6.3 ms.
+14 ms step, and v1 for 0.6–1.2 ms of 7.8 ms. The 7.8 ms is that session's v1 wall, not chapter 10's
+6.3 ms and not the published 6.03 ms per token. What differs on the page is the wall. The busy
+range stays near chapter 10's bf16 column, 0.51 ms to 1.15 ms, and the kernel count is 189 against
+that chapter's about 200. The build log does not say what on the machine moved the wall.
+(14 − 7.8) ms over (431 − 189) kernels is about 26 µs. That is the added kernels' share of the
+added time, not a second measurement of every launch. Chapter 10's roughly 30 µs was the other
+quotient, one step's wall divided by its kernel count. This profile is the session's account of
+why the plain v2 step was slower. It is not the published rate.
 
 ## Check yourself
 
@@ -428,9 +439,8 @@ Chapter 10's v1 profile is a different session: about 200 kernels, and a wall of
 3. The speed-up divides by the same model in plain bf16, so each of these two rows divided by
    itself is 1.00×. Chapter 11 states that rule. At 16+224 the published rates are 166 and 83
    tokens/s, 6.03 ms and 12.08 ms per token. Section 18's table recorded v1 bf16 at 169 tokens/s and
-   5.91 ms, and v2 bf16 at 75 tokens/s and 13.27 ms, and called v2 2.25× more slowly. That is an
-   earlier reading. The published pair is the result. The build log's section 14 table has the
-   same early v1 bf16 pair and no v2 row.
+   5.91 ms, and v2 bf16 at 75 tokens/s and 13.27 ms, 2.25 times as long. That is an
+   earlier reading. The published pair is the result.
 
 </details>
 

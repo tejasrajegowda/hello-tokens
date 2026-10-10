@@ -62,9 +62,10 @@ flowchart LR
     prod --> down["down, back to 384"]
 ```
 
-The printed SiLU of `−4, −1, 0, 1, 4` sits close to the GELU of the same five numbers. Both are near
-0 at a large negative input and near the input itself at a large positive one. The gap between the
-two functions on a single number is small next to what a second vector can do. In the run below, a
+The printed SiLU of `−4, −1, 0, 1, 4` is near 0 at a large negative input and near the input itself
+at a large positive one, and so is the GELU of the same five numbers. At −4 the two prints are not
+close: SiLU is about −0.072 and GELU is about −0.00013. That gap on one number is small next to
+what a second vector can do. In the run below, a
 value of 10 is multiplied by the SiLU of a gate of `−8`, of `0`, and of `8`. The products are about
 `−0.027`, exactly `0`, and about `80`. One stream of values, bent by GELU, has no place to put that
 choice.
@@ -437,7 +438,9 @@ Error(s) in loading state_dict for GPT:
 
 The sigmoid of `−4` is about `0.018`, and SiLU multiplies that by `−4`, giving about `−0.072`. The
 sigmoid of `4` is about `0.982`, and SiLU is about `3.928`. GELU of the same two inputs is about
-`−0.00013` and about `4.000`. Close on a lone number. The gate products are the other claim: SiLU
+`−0.00013` and about `4.000`. At −4 that pair is about −0.072 against about −0.00013, which is
+not close. At 4 the prints are about 3.928 and about 4.000, both near the input. The gate products
+are the other claim: SiLU
 of `−8` is about `−0.0027`, times 10 is about `−0.027`; SiLU of `0` is `0`, and the product is `0`;
 SiLU of `8` is about `7.997`, times 10 is about `79.97`.
 

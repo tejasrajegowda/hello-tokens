@@ -5,8 +5,9 @@ LayerNorm: subtract the mean, divide by the standard deviation, then apply a lea
 learned shift. This chapter puts a shorter normalization behind a switch. RMSNorm divides by the
 root mean square and keeps the scale, and it drops the mean and the shift. The v1 model is the
 default, so a v1 checkpoint still builds and still runs. The measured question is what the two
-dropped pieces were worth. On the short runs that isolate the switch, the loss does not move by
-more than the gap between two v1 seeds. The parameter count falls by 6,528. The training run gets
+dropped pieces were worth. On the short runs that isolate the switch, the loss sits 0.0004 above
+one v1 seed, twice the 0.0002 between the two seeds: the same order, and not a measured change in
+quality. The parameter count falls by 6,528. The training run gets
 slower, because the new layer is several small operations where LayerNorm was one.
 
 **Code:** [`hello_tokens/model/norm.py`](../../hello_tokens/model/norm.py) ·
@@ -59,8 +60,9 @@ flowchart LR
 ```
 
 The root mean square is a size, not a spread around a center. Dividing by it makes a vector of
-length-independent magnitude without ever computing a mean. A learned scale of 384 ones then
-restores the per-dimension freedom the shift is not asked to provide. Zhang and Sennrich, 2019,
+length-independent magnitude without ever computing a mean. A learned scale of 384 numbers,
+starting at ones, is what still lets one coordinate differ from another. The shift is the piece
+this layer drops. Zhang and Sennrich, 2019,
 is the paper the module cites for this shorter layer. Whether the shortening is free on *this*
 model is not a citation. It is the ablation at the end of the chapter.
 
@@ -401,8 +403,11 @@ because it never sets `norm`.
 
 ## What we got
 
-The comparison is six short runs, and this chapter owns one of them. Each run is 4,000 steps
-(65.5M tokens, 200 of them warm-up) and is scored on all 5,683,947 held-out tokens. v1 was trained
+The comparison is six short runs, and this chapter owns one of them. Each run is 4,000 steps, 200
+of them warm-up, 65.5M tokens, and is scored on all 5,683,947 held-out tokens. These rows stop
+there, a fifth of the full run in [chapter 7](07-the-real-training-run.md). Chapter 9's finished v1
+model, scored on the same held-out file, stays at perplexity 3.620 (loss 1.2866). The 4.540 below
+is not that model. v1 was trained
 twice, with two seeds, to put a size on run-to-run noise. The `"rmsnorm"` preset is cumulative in
 the ladder and first in the changes, so its row is v1 plus this switch and nothing else. The losses
 and the perplexities are the build log's table of those runs; the minutes are the same runs as

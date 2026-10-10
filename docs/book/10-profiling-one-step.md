@@ -94,9 +94,13 @@ if it were the model's speed.
 
 A process may ask not to be throttled, through `SetProcessInformation`. The request covers this
 process only, and only until it exits. Every command asks at startup. With the request accepted,
-generation held a steady **6.0 ms per token (166 tokens/s)**. An earlier 152 tokens/s came from short
-runs, partly caught before the throttle started. Those figures are what that investigation measured.
-The published speeds, taken with the same opt-out and combined across runs, are the next chapter's.
+generation held a steady **6.0 ms per token (166 tokens/s)**. That 6.0 ms is the writing loop, a
+run of generation turned into tokens per second. It is not the profile in the table below. `profile`
+reports the median of single steps, each wrapped in its own synchronize, and that median is 6.3 ms.
+The build log records both clocks and does not split the 0.3 ms further. An earlier 152 tokens/s
+came from short runs, partly caught before the throttle started. Those figures are what that
+investigation measured. The published speeds, taken with the same opt-out and combined across runs,
+are the next chapter's, and that chapter's per-token times are the writing loop again, about 6.0 ms.
 
 ## The shapes
 
@@ -256,34 +260,11 @@ print(statistics.median(samples))
 One round at 40 pulls the mean to 12.86 and leaves the median at 6.1. These lists illustrate the
 arithmetic. They are not runs of the model.
 
-### The same clock around a one-token step
+### The same clock for the other two modes
 
-> **Later:** the chapters on the KV cache and on CUDA graphs build the other two modes. The timing
-> loop does not change. `step` does, and, for graphs, `prepare`.
-
-<!-- from: hello_tokens/generation/profile_step.py -->
-```python
-        def step(c: int) -> None:
-            logits = model(windows[c][:, -1:], caches[c])[0, -1]
-            caches[c].rollback(c - 1)
-            sample(logits)
-```
-
-The caches are filled once, before the warm-up, with every token but the last. The timed pass reads
-only that last id. `rollback(c - 1)` restores the length, so the next round repeats the same position
-instead of walking forward until the cache overflows. Sampling stays inside the timed region.
-
-<!-- from: hello_tokens/generation/profile_step.py -->
-```python
-        def step(c: int) -> None:
-            logits = recorded(last_tokens[c])
-            recorded.cache.rollback(c - 1)
-            sample(logits)
-```
-
-This calls a step recorded once, then rolls that recording's cache back the same way. `prepare`
-refills the cache when the context changes, so one recording serves every length. Each window's last
-token was saved as a plain integer before the clock started.
+`cache` and `graphs` use this same timed loop. Later chapters build those two steps. For graphs, an
+untimed `prepare` runs when the context changes, before the clock. This chapter's table is the
+full-window mode only.
 
 ### Asking not to be throttled
 
@@ -410,10 +391,11 @@ def test_every_step_runs_at_the_same_position(monkeypatch, mode, contexts):
     assert len(seen) == n * (2 + 5)  # warm-up and timed rounds, one step per context in each
 ```
 
-Sampling is replaced by a recorder. Two warm-up rounds and five timed rounds fix the count at
-`n * (2 + 5)`, and every later step at a context must match the first within `1e-6`. Without the
-rollback the logits would move. A further test, under one seed, requires `full` and a one-token mode
-to agree within `1e-5` at contexts 3 and 16: the one-token step computes the same scores.
+Sampling is replaced by a recorder. The test's own comment is the check on the one-token modes: each
+timed step is put back to the same position, or the logits would move. Two warm-up rounds and five
+timed rounds fix the count at `n * (2 + 5)`, and every later step at a context must match the first
+within `1e-6`. A further test, under one seed, requires `full` and a one-token mode to agree within
+`1e-5` at contexts 3 and 16: the one-token step computes the same scores.
 
 <!-- from: tests/generation/test_power.py -->
 ```python
@@ -476,19 +458,24 @@ produce. Wall time is the same in float32 and in bf16.
 - **The GPU is idle for 60–92% of that wait.** Float32 busy time runs from 0.83 ms to 2.52 ms, and
   bf16 from 0.51 ms to 1.15 ms. Those idle ends are one minus 2.52 / 6.3 and one minus 0.51 / 6.3.
   Busy time itself grows about threefold (2.52 / 0.83), not sixteenfold.
-- **The launches account for the wall time.** About 200 kernels at roughly 30 µs each is
-  200 × 30 µs = 6 ms. bf16 cuts busy time (0.51 ms against 0.83 ms at context 16) and leaves the
-  6.3 ms wait: cheaper arithmetic, on a device that was already waiting.
+- **The launches account for the wall time.** About 6 ms of that wall, divided by about 200 kernels,
+  is roughly 30 µs each. The 30 µs is that quotient, not a separate clock, and 200 × 30 µs comes back
+  to about 6 ms. bf16 cuts busy time (0.51 ms against 0.83 ms at context 16) and leaves the 6.3 ms
+  wait: cheaper arithmetic, on a device that was already waiting.
 - **What throttling measured, before this table.** Generation ran at 6 ms per token for about a
-  second, then at 17–18 ms. With the opt-out it held 6.0 ms per token, 166 tokens/s. The earlier
-  152 tokens/s came from short runs, partly before the throttle started.
+  second, then at 17–18 ms. With the opt-out it held 6.0 ms per token, 166 tokens/s. That 6.0 ms is
+  the writing loop named above, not this table's 6.3 ms. The earlier 152 tokens/s came from short
+  runs, partly before the throttle started.
 - **The expectation, not a result.** A KV cache keeps keys and values already computed, and lower
   precision makes each kernel cheaper. Both remove work the GPU is mostly not doing, so at this size
   they should change speed little. Fused attention (the attention step in one kernel) and a CUDA
   graph (record the launches once, replay them) cut launches. Speculative decoding (a smaller model
   proposes tokens the main model checks) cuts sequential steps. Removing the launch overhead
-  entirely would leave about the GPU time, roughly 6–10 times faster. The published speeds are the
-  next chapter's.
+  entirely would leave about the GPU time. Dividing this table's wall by its busy time gives about
+  7.6× at float32 and context 16 (6.3 / 0.83) and 2.5× at float32 and context 256 (6.3 / 2.52), and
+  about 12× at bf16 and context 16 (6.3 / 0.51) down to about 5.5× at bf16 and context 256
+  (6.3 / 1.15). The build log's expectation was roughly 6–10 times, a band inside the bf16 half of
+  that spread and above the float32 long-context end. The published speeds are the next chapter's.
 
 ## Check yourself
 
@@ -510,7 +497,8 @@ produce. Wall time is the same in float32 and in bf16.
    shows it: less busy time, the same wall time.
 3. Windows power throttling. After about a second it lowered this process's CPU speed, and the step
    slowed from about 6 ms to 17–18 ms. The opt-out asks Windows not to throttle this process only,
-   until the process exits. With it accepted, generation held 6.0 ms per token.
+   until the process exits. With it accepted, the writing loop held 6.0 ms per token. The profile's
+   median in the table is the other clock, 6.3 ms.
 
 </details>
 

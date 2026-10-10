@@ -74,8 +74,8 @@ when they were measured, the machine, and the time.
 
 ### The tables are generated, not typed
 
-`bench` writes one JSON file per row under `benchmarks/results/`. `report` reads those files, and the
-judge results, and writes [`docs/benchmarks.md`](../../docs/benchmarks.md). The same text replaces
+`bench` writes one JSON file per row under `benchmarks/results/`. `report` reads those files and
+writes [`docs/benchmarks.md`](../../docs/benchmarks.md). The same text replaces
 whatever sits between `<!-- benchmarks:start -->` and `<!-- benchmarks:end -->` in the README.
 `report --check` exits with status 1 when a file is stale, and writes nothing.
 
@@ -102,7 +102,8 @@ ids, then a Python list. The writer returns a list of `new_tokens` ids. For the 
 | long answer | 16 | 224 | 240 |
 | long prompt | 128 | 128 | 256 |
 
-256 is the model's context, so the long prompt fills it and does not go past it. The per-token time
+256 is the model's context, so the long prompt's 128 + 128 fills it and does not go past it. The
+prompt alone is half of that. The per-token time
 divides by `new_tokens − 1`, because one of the new tokens is the first token, timed separately.
 
 ## The code
@@ -139,7 +140,10 @@ per switch that is on:
 ```
 
 A plain float32 run of v1 is `"v1 fp32"`. Each `["cache"] * flag` adds the word only when the flag is
-on; a flag that is off adds nothing. More switches, more words, which is what the report sorts on.
+on; a flag that is off adds nothing. Graphs are the exception: `args.cache or args.graphs` adds
+`cache` whenever graphs are on, and `graphs` is added as well, so the name carries both words even
+if the cache flag itself was left off. A bf16 v2 run with only that switch is `v2 bf16 cache graphs`,
+saved as `v2-bf16-cache-graphs.json`. More switches, more words, which is what the report sorts on.
 The file is that name with spaces turned into hyphens: `v1 fp32` is saved as `v1-fp32.json`.
 
 ### One point
@@ -471,8 +475,8 @@ NVIDIA GeForce RTX 4060 Laptop GPU, PyTorch 2.14.0+cu130, Python 3.14.3.
 
 ## Check yourself
 
-1. A full run writes 5 tokens in 1.0 s, and the one-token run took 0.2 s. What does the harness
-   report as the per-token time, and why is that not 1.0 / 5?
+1. A full run writes 5 tokens in 1.0 s, and the one-token run took 0.6 s. What does the harness
+   report as the per-token time, and what is 1.0 / 5?
 2. A writer returns 200 tokens when asked for 224, and finishes sooner. What does `measure_point`
    do with it?
 3. Why is a v2 row's speed-up computed against `v2 bf16` rather than against `v1 bf16`?
@@ -480,10 +484,9 @@ NVIDIA GeForce RTX 4060 Laptop GPU, PyTorch 2.14.0+cu130, Python 3.14.3.
 <details>
 <summary>Answers</summary>
 
-1. 200 ms. The full second includes the first token, so the other four share 0.8 s, and 0.8 / 4 is
-   0.2 s, which is 200 ms. Tokens per second is a different number, 5 / 1.0 = 5, and it keeps the
-   first token in the total. In this example the two happen to describe the same 0.2 s per token.
-   They come apart when reading the prompt costs more than generating the next token.
+1. 100 ms, and 0.2 s. The full second includes the first token, so the other four share 0.4 s, and
+   0.4 / 4 is 0.1 s, which is 100 ms. 1.0 / 5 is 0.2 s, the average if the first token were treated
+   like the others. Tokens per second is 5 / 1.0 = 5, and it keeps the first token in the total.
 2. It raises `ValueError` and does not return a point. A short completion would otherwise be a
    smaller time for less work, and the row would look faster than the variant is.
 3. Because the speed-up is meant to be the technique, not the model. The published plain v2 row is

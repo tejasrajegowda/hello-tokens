@@ -62,8 +62,11 @@ values shrink the same way. The layer's output width is `384 + 128 + 128 = 640`,
 1,152. The projection that mixes the heads back together, `out`, still maps 384 to 384, because
 six query heads are still concatenated. Nothing is saved there.
 
-One `qkv` at width 384 holds 443,520 parameters with six key/value heads and 246,400 with two. The
-difference, 197,120, times eight blocks, is 1,576,960. That is the whole of this switch. From the
+One `qkv` at width 384 holds 443,520 parameters with six key/value heads and 246,400 with two,
+including that linear layer's bias. The difference, 197,120, times eight blocks, is 1,576,960. The
+bias piece is 1,152 − 640 = 512 per block, and eight blocks of that bias are 4,096, the same count
+as SwiGLU's extra biases in chapter 14. The rest is the narrower weights. That 1,576,960 is the
+whole of this switch. From the
 SwiGLU preset's 15,766,912 parameters, 1,576,960 is the fraction the build log calls 10%. The run
 prints the unrounded quotient, 0.100017048360516.
 
@@ -83,8 +86,9 @@ The store is the reason the cut exists. Keys and values are what a later chapter
 token need not recompute them. The buffer's head axis is `kv_head_count`, not the query-head count.
 Two heads instead of six is a factor of three, in every layer, for both the keys and the values. A
 test on the real presets, in bf16, pins 12,288 bytes per position against 4,096. The build log
-calls those 12 KB and 4 KB per token. The test's cache is batch 1, so per position and per token
-are the same number.
+calls those 12 KB and 4 KB per token, with a KB of 1,024 bytes: 12 × 1,024 = 12,288 and
+4 × 1,024 = 4,096. Chapter 11's model size uses a MB of 10^6 bytes, a different rounding. The
+test's cache is batch 1, so per position and per token are the same number.
 
 ## The shapes
 
@@ -259,9 +263,9 @@ raises. The test's comment is the reason: six query heads cannot be split into f
 key head axis is 2. Chapter 4's score is a dot product that lines those axes up. They do not line
 up until the repeat. The branch exists so the score function can stay the one chapter 4 wrote.
 
-**Copying on the fused path as well.** The fused kernel is called with `enable_gqa` set and shares
-heads itself. The copy is only in the non-fused branch. Doing both would expand heads that the kernel was
-about to share.
+**Copying on the fused path as well.** A later chapter's single kernel shares the heads itself. The
+copy in the excerpt above is the other path. Doing both would repeat heads the kernel was about to
+share.
 
 ## Proving it works
 
@@ -497,24 +501,14 @@ bad the query heads must divide evenly between the key/value heads
 ok 6 2 3
 ```
 
-`kv` is heads, `kv_width`, and `qkv` outputs, first for v1 and then for two key/value heads:
-6, 384, 1,152 against 2, 128, 640. The weight shapes match those output counts by 384 columns.
-`qkv_params` includes each layer's bias: 443,520 against 246,400. `out_params` does not move, at
-147,840. `diff_eight` is 1,576,960, and `removed` is the same number taken from the two full
-presets. `group` is 3.
-
-`share_max` is the largest absolute gap on a seed-0 replay of the sharing test's copy. It is
-5.960464477539063e-08, under the test's `1e-6`, and `share_ok` is True. `equal` is True and
-`small_qkv` is 72, which is `3 × 24`. `causal` is True. `small_head` is head width 4 and group 3
-on that small v2 config, not on the real model.
-
-`counts` is v1, the SwiGLU preset, and v2: 15,867,648, 15,766,912, and 14,189,952. `pct_step` is
-1,576,960 / 15,766,912. `pct_v1` is the drop from v1's count to v2's, and it is not "GQA alone":
-the position table, the norm shifts, and SwiGLU's extra biases are in that quotient too. The build
-log rounds `pct_v1` to 10.6% fewer, and rounds the step's own fraction to 10%.
-
-`per_token` is 12,288 and 4,096, and the element size is 2, matching the byte test. The rejected
-constructor prints the divisibility message. `ok` is the property for unset, for 2, and for 3.
+`kv` through `group` are this layer's shapes, including the bias inside `qkv_params`. `interleave`
+and `tile` are the two orders from the failure mode above. `share_max`, `share_ok`, `equal`,
+`small_qkv`, `causal`, and `small_head` replay the tests already excerpted; the check questions
+use those prints. `counts`, `removed`, `pct_step`, and `pct_v1` are the preset arithmetic, and
+`pct_v1` is not "GQA alone": the position table, the norm shifts, and SwiGLU's extra biases are in
+that quotient too. The build log rounds `pct_v1` to 10.6% fewer, and rounds the step's own fraction
+to 10%. `per_token` is 12,288 and 4,096, with element size 2. `bad` is the rejected constructor,
+and `ok` is the property for unset, for 2, and for 3.
 
 ## What we got
 
