@@ -578,4 +578,4 @@ perplexities, and parameter counts are the build log's table. The minutes are
 
 </details>
 
-Next: 16. Ablations, and training v2
+Next: [16. Ablations, and training v2](16-ablations-and-training-v2.md)

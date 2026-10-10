@@ -32,8 +32,8 @@ command no longer exists. Every number comes from a file committed alongside the
 13. [Rotary position embedding](13-rotary-position-embedding.md)
 14. [SwiGLU](14-swiglu.md)
 15. [Grouped-query attention](15-grouped-query-attention.md)
-16. Ablations, and training v2
-17. The KV cache
+16. [Ablations, and training v2](16-ablations-and-training-v2.md)
+17. [The KV cache](17-the-kv-cache.md)
 18. Fused attention
 19. CUDA graphs
 20. int8 and int4 quantization
