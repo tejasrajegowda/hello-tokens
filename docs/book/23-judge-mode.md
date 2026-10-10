@@ -518,4 +518,4 @@ way. The questions are 2,000, and `len // 2` makes the two halves 1,000 each.
 
 </details>
 
-Next: 24. Serving
+Next: [24. Serving](24-serving.md)

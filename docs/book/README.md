@@ -40,5 +40,5 @@ command no longer exists. Every number comes from a file committed alongside the
 21. [Speculative decoding](21-speculative-decoding.md)
 22. [Calibration](22-calibration.md)
 23. [Judge mode](23-judge-mode.md)
-24. Serving
-25. The results
+24. [Serving](24-serving.md)
+25. [The results](25-the-results.md)
