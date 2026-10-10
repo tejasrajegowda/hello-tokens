@@ -505,4 +505,4 @@ replays. The speed-up in this table is not that recording. It is the cache alone
 
 </details>
 
-Next: 18. Fused attention
+Next: [18. Fused attention](18-fused-attention.md)

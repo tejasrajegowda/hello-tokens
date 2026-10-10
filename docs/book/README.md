@@ -34,8 +34,8 @@ command no longer exists. Every number comes from a file committed alongside the
 15. [Grouped-query attention](15-grouped-query-attention.md)
 16. [Ablations, and training v2](16-ablations-and-training-v2.md)
 17. [The KV cache](17-the-kv-cache.md)
-18. Fused attention
-19. CUDA graphs
+18. [Fused attention](18-fused-attention.md)
+19. [CUDA graphs](19-cuda-graphs.md)
 20. int8 and int4 quantization
 21. Speculative decoding
 22. Calibration
