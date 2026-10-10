@@ -30,8 +30,8 @@ command no longer exists. Every number comes from a file committed alongside the
 11. [The benchmark harness](11-the-benchmark-harness.md)
 12. [RMSNorm](12-rmsnorm.md)
 13. [Rotary position embedding](13-rotary-position-embedding.md)
-14. SwiGLU
-15. Grouped-query attention
+14. [SwiGLU](14-swiglu.md)
+15. [Grouped-query attention](15-grouped-query-attention.md)
 16. Ablations, and training v2
 17. The KV cache
 18. Fused attention
